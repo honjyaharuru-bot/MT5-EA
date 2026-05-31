@@ -50,11 +50,20 @@ input bool    InpUseNewsFilter   = true;      // 指標フィルタ(テスター
 input int     InpNewsBeforeMin   = 30;        // 指標 前 停止(分)
 input int     InpNewsAfterMin    = 30;        // 指標 後 停止(分)
 
+input group "=== CSVログ / CSV Log (backtest analysis) ==="
+input bool    InpExportCSV       = true;      // CSV出力 有効
+input bool    InpCSVCommonFolder = false;     // 共通フォルダへ出力(false=端末/テスターのFilesフォルダ)
+
 //==================================================================
 // グローバル
 //==================================================================
-int      g_atrHandle = INVALID_HANDLE;
-datetime g_lastBarTime = 0;
+int      g_atrHandle    = INVALID_HANDLE;
+datetime g_lastBarTime  = 0;
+
+// CSVログ用
+int      g_signalFile   = INVALID_HANDLE;   // シグナル(発注)ログ
+int      g_tradeFile    = INVALID_HANDLE;   // 決済(実績)ログ
+int      g_signalCount  = 0;                // 発注通し番号
 
 //==================================================================
 int OnInit()
@@ -69,12 +78,192 @@ int OnInit()
       Print("ATRハンドル作成失敗");
       return(INIT_FAILED);
    }
+
+   if(InpExportCSV) OpenCsvLogs();
+
    return(INIT_SUCCEEDED);
 }
 
 void OnDeinit(const int reason)
 {
    if(g_atrHandle != INVALID_HANDLE) IndicatorRelease(g_atrHandle);
+   CloseCsvLogs();
+}
+
+//==================================================================
+// CSVログ: ファイル生成 / ヘッダ書き込み
+//==================================================================
+void OpenCsvLogs()
+{
+   int flags = FILE_WRITE | FILE_CSV | FILE_ANSI;
+   if(InpCSVCommonFolder) flags |= FILE_COMMON;
+
+   string tag = _Symbol + "_" + EnumToString(InpBosTF) + "_" + (string)InpMagic;
+
+   // --- シグナル(発注)ログ ---
+   string sName = "FVG_signals_" + tag + ".csv";
+   g_signalFile = FileOpen(sName, flags, ',');
+   if(g_signalFile == INVALID_HANDLE)
+      Print("シグナルCSV作成失敗: ", sName, " err=", GetLastError());
+   else
+      FileWrite(g_signalFile,
+         "signal_id","position_id","time","direction",
+         "entry","sl","tp","lot","rr",
+         "fvg_top","fvg_bottom","fvg_size","atr","spread_pts");
+
+   // --- 決済(実績)ログ ---
+   string tName = "FVG_trades_" + tag + ".csv";
+   g_tradeFile = FileOpen(tName, flags, ',');
+   if(g_tradeFile == INVALID_HANDLE)
+      Print("トレードCSV作成失敗: ", tName, " err=", GetLastError());
+   else
+      FileWrite(g_tradeFile,
+         "position_id","direction","open_time","close_time","duration_min",
+         "open_price","close_price","sl","tp","volume",
+         "profit","swap","commission","net","exit_reason");
+}
+
+void CloseCsvLogs()
+{
+   if(g_signalFile != INVALID_HANDLE){ FileClose(g_signalFile); g_signalFile = INVALID_HANDLE; }
+   if(g_tradeFile  != INVALID_HANDLE){ FileClose(g_tradeFile);  g_tradeFile  = INVALID_HANDLE; }
+}
+
+//==================================================================
+// CSVログ: 発注時の戦略コンテキストを記録
+//   position_id には待機注文チケットを記録（約定後のposition_idと一致）
+//==================================================================
+void LogSignal(string dir, ulong orderTicket,
+               double entry, double sl, double tp, double lot, double rr,
+               double fvgTop, double fvgBottom, double atr)
+{
+   if(g_signalFile == INVALID_HANDLE) return;
+
+   g_signalCount++;
+   long sp = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
+
+   FileWrite(g_signalFile,
+      (string)g_signalCount,
+      (string)orderTicket,
+      TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+      dir,
+      DoubleToString(entry, _Digits),
+      DoubleToString(sl,    _Digits),
+      DoubleToString(tp,    _Digits),
+      DoubleToString(lot,   2),
+      DoubleToString(rr,    2),
+      DoubleToString(fvgTop,    _Digits),
+      DoubleToString(fvgBottom, _Digits),
+      DoubleToString(fvgTop - fvgBottom, _Digits),
+      DoubleToString(atr, _Digits),
+      (string)sp);
+   FileFlush(g_signalFile);
+}
+
+//==================================================================
+// 約定/決済イベント -> 決済時に実績を記録
+//==================================================================
+void OnTradeTransaction(const MqlTradeTransaction &trans,
+                        const MqlTradeRequest     &request,
+                        const MqlTradeResult      &result)
+{
+   if(g_tradeFile == INVALID_HANDLE) return;
+   if(trans.type != TRADE_TRANSACTION_DEAL_ADD) return;
+
+   ulong dealTicket = trans.deal;
+   if(!HistoryDealSelect(dealTicket)) return;
+
+   if(HistoryDealGetInteger(dealTicket, DEAL_MAGIC)  != InpMagic) return;
+   if(HistoryDealGetString (dealTicket, DEAL_SYMBOL) != _Symbol)  return;
+   if(HistoryDealGetInteger(dealTicket, DEAL_ENTRY)  != DEAL_ENTRY_OUT) return;
+
+   long posId = HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
+
+   // クローズ側(この)決済の値
+   datetime closeTime  = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
+   double   closePrice = HistoryDealGetDouble(dealTicket, DEAL_PRICE);
+   double   volume     = HistoryDealGetDouble(dealTicket, DEAL_VOLUME);
+   double   profit     = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
+   double   swap       = HistoryDealGetDouble(dealTicket, DEAL_SWAP);
+   double   commission = HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
+   long     reason     = HistoryDealGetInteger(dealTicket, DEAL_REASON);
+
+   // ポジションの建玉(IN)情報を取得
+   datetime openTime  = 0;
+   double   openPrice = 0;
+   double   sl        = 0;
+   double   tp        = 0;
+   string   dir       = "";
+   if(HistorySelectByPosition(posId))
+   {
+      int deals = HistoryDealsTotal();
+      for(int i = 0; i < deals; i++)
+      {
+         ulong dt = HistoryDealGetTicket(i);
+         if(dt == 0) continue;
+         if(HistoryDealGetInteger(dt, DEAL_ENTRY) == DEAL_ENTRY_IN)
+         {
+            openTime  = (datetime)HistoryDealGetInteger(dt, DEAL_TIME);
+            openPrice = HistoryDealGetDouble(dt, DEAL_PRICE);
+            long dtype = HistoryDealGetInteger(dt, DEAL_TYPE);
+            dir = (dtype == DEAL_TYPE_BUY) ? "BUY" : "SELL";
+            break;
+         }
+      }
+   }
+   // SL/TPはポジション履歴(オーダー)から取得
+   if(HistorySelectByPosition(posId))
+   {
+      int orders = HistoryOrdersTotal();
+      for(int i = 0; i < orders; i++)
+      {
+         ulong ot = HistoryOrderGetTicket(i);
+         if(ot == 0) continue;
+         double osl = HistoryOrderGetDouble(ot, ORDER_SL);
+         double otp = HistoryOrderGetDouble(ot, ORDER_TP);
+         if(osl > 0) sl = osl;
+         if(otp > 0) tp = otp;
+      }
+   }
+
+   double durMin = (openTime > 0) ? (double)(closeTime - openTime) / 60.0 : 0.0;
+
+   FileWrite(g_tradeFile,
+      (string)posId,
+      dir,
+      TimeToString(openTime,  TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+      TimeToString(closeTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+      DoubleToString(durMin, 1),
+      DoubleToString(openPrice,  _Digits),
+      DoubleToString(closePrice, _Digits),
+      DoubleToString(sl, _Digits),
+      DoubleToString(tp, _Digits),
+      DoubleToString(volume, 2),
+      DoubleToString(profit, 2),
+      DoubleToString(swap, 2),
+      DoubleToString(commission, 2),
+      DoubleToString(profit + swap + commission, 2),
+      DealReasonToString(reason));
+   FileFlush(g_tradeFile);
+}
+
+//==================================================================
+// 決済理由を文字列化
+//==================================================================
+string DealReasonToString(long reason)
+{
+   switch((int)reason)
+   {
+      case DEAL_REASON_CLIENT:   return "CLIENT";
+      case DEAL_REASON_EXPERT:   return "EXPERT";
+      case DEAL_REASON_SL:       return "SL";
+      case DEAL_REASON_TP:       return "TP";
+      case DEAL_REASON_SO:       return "STOPOUT";
+      case DEAL_REASON_ROLLOVER: return "ROLLOVER";
+      case DEAL_REASON_VMARGIN:  return "VMARGIN";
+      case DEAL_REASON_SPLIT:    return "SPLIT";
+      default:                   return "OTHER";
+   }
 }
 
 //==================================================================
@@ -358,7 +547,8 @@ void TryLong()
    datetime exp = (InpPendingExpiryMin>0) ? TimeCurrent()+InpPendingExpiryMin*60 : 0;
    ENUM_ORDER_TYPE_TIME tt = (exp>0) ? ORDER_TIME_SPECIFIED : ORDER_TIME_GTC;
 
-   trade.BuyLimit(lot, entry, _Symbol, sl, tp, tt, exp, "FVG_BUY");
+   if(trade.BuyLimit(lot, entry, _Symbol, sl, tp, tt, exp, "FVG_BUY"))
+      LogSignal("BUY", trade.ResultOrder(), entry, sl, tp, lot, rr, fvgTop, fvgBottom, atr);
 }
 
 //==================================================================
@@ -423,7 +613,8 @@ void TryShort()
    datetime exp = (InpPendingExpiryMin>0) ? TimeCurrent()+InpPendingExpiryMin*60 : 0;
    ENUM_ORDER_TYPE_TIME tt = (exp>0) ? ORDER_TIME_SPECIFIED : ORDER_TIME_GTC;
 
-   trade.SellLimit(lot, entry, _Symbol, sl, tp, tt, exp, "FVG_SELL");
+   if(trade.SellLimit(lot, entry, _Symbol, sl, tp, tt, exp, "FVG_SELL"))
+      LogSignal("SELL", trade.ResultOrder(), entry, sl, tp, lot, rr, fvgTop, fvgBottom, atr);
 }
 
 //==================================================================
