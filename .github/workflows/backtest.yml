@@ -23,19 +23,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Copy EA into MT5
-        shell: pwsh
+        shell: powershell
         run: Copy-Item src\FVG_EA.mq5 "$env:MT5_DATA\MQL5\Experts\FVG_EA.mq5" -Force
       - name: Compile
-        shell: pwsh
+        shell: powershell
         run: ./ci/compile.ps1
       - name: Backtest
-        shell: pwsh
+        shell: powershell
         run: ./ci/backtest.ps1
       - name: Collect results
-        shell: pwsh
+        shell: powershell
         run: ./ci/collect.ps1
       - name: Commit results
-        shell: pwsh
+        shell: powershell
         run: |
           git config user.name "mt5-bot"
           git config user.email "bot@users.noreply.github.com"
