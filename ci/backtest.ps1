@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
-$ini = "$env:MT5_INSTALL\fvg_test.ini"
-$rep = "$env:MT5_INSTALL\report"
+$ini = "$env:TEMP\fvg_test.ini"
+$rep = "$env:TEMP\report"
 @"
 [Tester]
 Expert=FVG_EA.ex5

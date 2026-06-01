@@ -7,7 +7,7 @@ if (Test-Path $json) {
   Copy-Item $json "results\latest.json" -Force
   Write-Host "JSON取得OK"
 } else { Write-Host "JSONなし" }
-$report = "$env:MT5_INSTALL\report.htm"
+$report = "$env:TEMP\report.htm"
 if (Test-Path $report) {
   Copy-Item $report "results\report-$stamp.htm" -Force
   Write-Host "HTMLレポート取得OK"
