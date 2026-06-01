@@ -1,0 +1,47 @@
+name: MT5 Backtest
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'ci/**'
+      - '.github/workflows/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  backtest:
+    runs-on: [self-hosted, windows, mt5]
+    env:
+      MT5_INSTALL: 'C:\Program Files\MetaTrader 5 IC Markets Global'
+      MT5_DATA: 'C:\Users\Administrator\AppData\Roaming\MetaQuotes\Terminal\010E047102812FC0C18890992854220E'
+      SYMBOL: EURUSD
+      PERIOD: M5
+      FROM: 2022.01.01
+      TO: 2024.12.31
+      DEPOSIT: '10000'
+      MODEL: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Copy EA into MT5
+        shell: pwsh
+        run: Copy-Item src\FVG_EA.mq5 "$env:MT5_DATA\MQL5\Experts\FVG_EA.mq5" -Force
+      - name: Compile
+        shell: pwsh
+        run: ./ci/compile.ps1
+      - name: Backtest
+        shell: pwsh
+        run: ./ci/backtest.ps1
+      - name: Collect results
+        shell: pwsh
+        run: ./ci/collect.ps1
+      - name: Commit results
+        shell: pwsh
+        run: |
+          git config user.name "mt5-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add results
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "backtest $(Get-Date -Format yyyy-MM-dd_HHmm) [skip ci]"
+            git push
+          } else { Write-Host "変化なし" }
