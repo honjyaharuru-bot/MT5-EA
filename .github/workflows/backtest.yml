@@ -44,18 +44,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             git commit -m "backtest $(Get-Date -Format yyyy-MM-dd_HHmm) [skip ci]"
             git push
-          } else { Write-Host "変化なし" }
+          } else { Write-Host "no changes" }
       - name: Sync to Google Drive
         shell: powershell
         continue-on-error: true
         run: |
-          $dest = "G:\マイドライブ\MT5-Results"
-          Write-Host "G:ドライブ確認..."
-          if (Test-Path "G:\") {
-            Write-Host "G: アクセス可能"
-            New-Item -ItemType Directory -Force -Path $dest | Out-Null
-            Copy-Item results\* $dest -Force -ErrorAction SilentlyContinue
-            Write-Host "同期完了: $dest"
-          } else {
-            Write-Host "警告: G:ドライブにアクセスできません"
+          $driveRoot = "G:\"
+          if (-not (Test-Path $driveRoot)) {
+            Write-Host "WARNING: G drive not found"
+            exit 0
           }
+          $sub = (Get-ChildItem $driveRoot | Select-Object -First 1).FullName
+          $dest = "$sub\MT5-Results"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item results\* $dest -Force -ErrorAction SilentlyContinue
+          Write-Host "Sync done: $dest"
