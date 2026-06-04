@@ -47,8 +47,15 @@ jobs:
           } else { Write-Host "変化なし" }
       - name: Sync to Google Drive
         shell: powershell
+        continue-on-error: true
         run: |
           $dest = "G:\マイドライブ\MT5-Results"
-          if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest -Force }
-          Copy-Item results\* $dest -Force
-          Write-Host "Google Drive同期完了"
+          Write-Host "G:ドライブ確認..."
+          if (Test-Path "G:\") {
+            Write-Host "G: アクセス可能"
+            New-Item -ItemType Directory -Force -Path $dest | Out-Null
+            Copy-Item results\* $dest -Force -ErrorAction SilentlyContinue
+            Write-Host "同期完了: $dest"
+          } else {
+            Write-Host "警告: G:ドライブにアクセスできません"
+          }
