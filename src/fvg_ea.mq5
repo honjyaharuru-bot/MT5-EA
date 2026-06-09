@@ -1,26 +1,28 @@
 //+------------------------------------------------------------------+
 //|                                                        FVG_EA.mq5 |
-//|                              FVG EA Ver1.0  (MT5)                 |
+//|                    FVG EA Ver2.0  (MT5)                           |
+//|   Bias = H1 trend, Entry = M15 BOS + FVG (limit-only)            |
+//|   Rule: if the FVG is NOT filled (limit not hit) -> NO ENTRY      |
 //+------------------------------------------------------------------+
-#property copyright "FVG EA Ver1.0"
-#property version   "1.00"
+#property copyright "FVG EA Ver2.0"
+#property version   "2.00"
 #property strict
 
 #include <Trade/Trade.mqh>
 CTrade trade;
 
-input group "=== 一般 / General ==="
-input long    InpMagic           = 990010;
+input group "=== General ==="
+input long    InpMagic           = 990015;
 input double  InpRiskPercent     = 1.0;
 input double  InpFixedLot        = 0.10;
 input int     InpMaxSpreadPoints = 25;
 input int     InpSlippagePoints  = 10;
 
-input group "=== 時間足 / Timeframes ==="
-input ENUM_TIMEFRAMES InpTrendTF = PERIOD_M10;
-input ENUM_TIMEFRAMES InpBosTF   = PERIOD_M5;
+input group "=== Timeframes ==="
+input ENUM_TIMEFRAMES InpTrendTF = PERIOD_H1;   // bias / liquidity
+input ENUM_TIMEFRAMES InpBosTF   = PERIOD_M15;  // BOS / FVG / entry
 
-input group "=== 構造 / Structure ==="
+input group "=== Structure ==="
 input int     InpSwingHalfWidth  = 3;
 input int     InpScanBars        = 300;
 
@@ -30,17 +32,18 @@ input double  InpATRMultiplier   = 0.5;
 input double  InpSLBufferPoints  = 30;
 input double  InpMinRR           = 1.5;
 
-input group "=== 発注 / Order ==="
-input int     InpPendingExpiryMin = 60;
+input group "=== Entry / Fill rule ==="
+input double  InpEntryFillRatio  = 0.5;   // 0=near edge, 0.5=mid, 1.0=full fill
+input int     InpFillWindowBars  = 8;     // cancel pending if unfilled within N M15 bars
 
-input group "=== セッション / Sessions ==="
+input group "=== Sessions ==="
 input bool    InpUseSession      = true;
 input int     InpLondonStart     = 8;
 input int     InpLondonEnd       = 17;
 input int     InpNYStart         = 13;
 input int     InpNYEnd           = 22;
 
-input group "=== ニュース / News ==="
+input group "=== News ==="
 input bool    InpUseNewsFilter   = true;
 input int     InpNewsBeforeMin   = 30;
 input int     InpNewsAfterMin    = 30;
@@ -48,6 +51,7 @@ input int     InpNewsAfterMin    = 30;
 int      g_atrHandle = INVALID_HANDLE;
 datetime g_lastBarTime = 0;
 
+//+------------------------------------------------------------------+
 int OnInit()
 {
    trade.SetExpertMagicNumber(InpMagic);
@@ -56,7 +60,7 @@ int OnInit()
    g_atrHandle = iATR(_Symbol, InpBosTF, InpATRPeriod);
    if(g_atrHandle == INVALID_HANDLE)
    {
-      Print("ATRハンドル作成失敗");
+      Print("ATR handle creation failed");
       return(INIT_FAILED);
    }
    return(INIT_SUCCEEDED);
@@ -67,13 +71,18 @@ void OnDeinit(const int reason)
    if(g_atrHandle != INVALID_HANDLE) IndicatorRelease(g_atrHandle);
 }
 
+//+------------------------------------------------------------------+
 void OnTick()
 {
    datetime t = iTime(_Symbol, InpBosTF, 0);
-   if(t == g_lastBarTime) return;
+   if(t == g_lastBarTime) return;     // act once per new M15 bar
    g_lastBarTime = t;
 
-   if(HasPositionOrOrder()) return;
+   ManagePending();                   // handle waiting limit first
+
+   if(HasPosition()) return;          // already in a trade
+   if(HasPending())  return;          // a limit is waiting for the FVG fill
+
    if(InpUseSession && !InSession()) return;
    if(!SpreadOK()) return;
    if(InpUseNewsFilter && NewsBlock()) return;
@@ -85,7 +94,40 @@ void OnTick()
    else          TryShort();
 }
 
-bool HasPositionOrOrder()
+//+------------------------------------------------------------------+
+//| Pending management: enforce "no fill -> no entry"                |
+//+------------------------------------------------------------------+
+void ManagePending()
+{
+   int barSec = PeriodSeconds(InpBosTF);
+   int trend  = GetTrend();
+
+   for(int i = OrdersTotal()-1; i >= 0; i--)
+   {
+      ulong tk = OrderGetTicket(i);
+      if(tk == 0) continue;
+      if(OrderGetString(ORDER_SYMBOL)   != _Symbol)  continue;
+      if(OrderGetInteger(ORDER_MAGIC)   != InpMagic) continue;
+
+      long     type  = OrderGetInteger(ORDER_TYPE);
+      datetime setup = (datetime)OrderGetInteger(ORDER_TIME_SETUP);
+      bool isBuy  = (type == ORDER_TYPE_BUY_LIMIT);
+      bool isSell = (type == ORDER_TYPE_SELL_LIMIT);
+
+      // (1) FVG not filled within the window -> cancel, no entry
+      if(TimeCurrent() - setup >= (long)InpFillWindowBars * barSec)
+      {
+         trade.OrderDelete(tk);
+         Print("FVG not filled within window -> cancel pending, NO ENTRY");
+         continue;
+      }
+      // (2) trend flipped before fill -> setup stale, cancel
+      if(isBuy  && trend <  1) { trade.OrderDelete(tk); Print("Trend no longer up -> cancel buy pending");  continue; }
+      if(isSell && trend > -1) { trade.OrderDelete(tk); Print("Trend no longer down -> cancel sell pending"); continue; }
+   }
+}
+
+bool HasPosition()
 {
    for(int i = PositionsTotal()-1; i >= 0; i--)
    {
@@ -95,17 +137,23 @@ bool HasPositionOrOrder()
          PositionGetInteger(POSITION_MAGIC) == InpMagic)
          return true;
    }
+   return false;
+}
+
+bool HasPending()
+{
    for(int i = OrdersTotal()-1; i >= 0; i--)
    {
       ulong tk = OrderGetTicket(i);
       if(tk == 0) continue;
-      if(OrderGetString(ORDER_SYMBOL) == _Symbol &&
-         OrderGetInteger(ORDER_MAGIC) == InpMagic)
+      if(OrderGetString(ORDER_SYMBOL)  == _Symbol &&
+         OrderGetInteger(ORDER_MAGIC)  == InpMagic)
          return true;
    }
    return false;
 }
 
+//+------------------------------------------------------------------+
 bool InSession()
 {
    MqlDateTime dt;
@@ -144,6 +192,7 @@ bool NewsBlock()
    return false;
 }
 
+//+------------------------------------------------------------------+
 bool IsFractalHigh(ENUM_TIMEFRAMES tf, int i, int w)
 {
    double h = iHigh(_Symbol, tf, i);
@@ -191,7 +240,7 @@ void GetSwings(ENUM_TIMEFRAMES tf, int w, int scan,
    }
 }
 
-int GetTrend()
+int GetTrend()   // H1 bias
 {
    double h1,h2,l1,l2; int h1b,h2b,l1b,l2b;
    GetSwings(InpTrendTF, InpSwingHalfWidth, InpScanBars,
@@ -239,6 +288,9 @@ double CalcLot(double slDistancePrice)
    return NormalizeLot(riskMoney / lossPerLot);
 }
 
+//+------------------------------------------------------------------+
+//| LONG: H1 trend up -> M15 BOS up -> first FVG -> limit @ fill zone |
+//+------------------------------------------------------------------+
 void TryLong()
 {
    double h1,h2,l1,l2; int h1b,h2b,l1b,l2b;
@@ -270,7 +322,7 @@ void TryLong()
    if(!found) return;
 
    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   double entry = NormalizePrice((fvgTop + fvgBottom) / 2.0);
+   double entry = NormalizePrice(fvgTop - InpEntryFillRatio*(fvgTop - fvgBottom));
    double sl    = NormalizePrice(fvgBottom - InpSLBufferPoints*point);
    double tp    = NormalizePrice(FindLiquidityAbove(entry));
    if(tp <= 0) return;
@@ -280,12 +332,18 @@ void TryLong()
    if((entry - sl) <= 0) return;
    if((tp - entry) / (entry - sl) < InpMinRR) return;
 
-   double lot = CalcLot(entry - sl);
-   datetime exp = (InpPendingExpiryMin>0) ? TimeCurrent()+InpPendingExpiryMin*60 : 0;
-   ENUM_ORDER_TYPE_TIME tt = (exp>0) ? ORDER_TIME_SPECIFIED : ORDER_TIME_GTC;
-   trade.BuyLimit(lot, entry, _Symbol, sl, tp, tt, exp, "FVG_BUY");
+   double lot   = CalcLot(entry - sl);
+   int barSec   = PeriodSeconds(InpBosTF);
+   datetime exp = TimeCurrent() + (long)(InpFillWindowBars+1) * barSec;
+
+   if(trade.BuyLimit(lot, entry, _Symbol, sl, tp, ORDER_TIME_SPECIFIED, exp, "FVG_BUY"))
+      PrintFormat("FVG buy pending @ %.5f (SL %.5f TP %.5f) waiting fill within %d M15 bars",
+                  entry, sl, tp, InpFillWindowBars);
 }
 
+//+------------------------------------------------------------------+
+//| SHORT: mirror of TryLong                                         |
+//+------------------------------------------------------------------+
 void TryShort()
 {
    double h1,h2,l1,l2; int h1b,h2b,l1b,l2b;
@@ -317,7 +375,7 @@ void TryShort()
    if(!found) return;
 
    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   double entry = NormalizePrice((fvgTop + fvgBottom) / 2.0);
+   double entry = NormalizePrice(fvgBottom + InpEntryFillRatio*(fvgTop - fvgBottom));
    double sl    = NormalizePrice(fvgTop + InpSLBufferPoints*point);
    double tp    = NormalizePrice(FindLiquidityBelow(entry));
    if(tp <= 0) return;
@@ -327,13 +385,17 @@ void TryShort()
    if((sl - entry) <= 0) return;
    if((entry - tp) / (sl - entry) < InpMinRR) return;
 
-   double lot = CalcLot(sl - entry);
-   datetime exp = (InpPendingExpiryMin>0) ? TimeCurrent()+InpPendingExpiryMin*60 : 0;
-   ENUM_ORDER_TYPE_TIME tt = (exp>0) ? ORDER_TIME_SPECIFIED : ORDER_TIME_GTC;
-   trade.SellLimit(lot, entry, _Symbol, sl, tp, tt, exp, "FVG_SELL");
+   double lot   = CalcLot(sl - entry);
+   int barSec   = PeriodSeconds(InpBosTF);
+   datetime exp = TimeCurrent() + (long)(InpFillWindowBars+1) * barSec;
+
+   if(trade.SellLimit(lot, entry, _Symbol, sl, tp, ORDER_TIME_SPECIFIED, exp, "FVG_SELL"))
+      PrintFormat("FVG sell pending @ %.5f (SL %.5f TP %.5f) waiting fill within %d M15 bars",
+                  entry, sl, tp, InpFillWindowBars);
 }
 
-double FindLiquidityAbove(double entry)
+//+------------------------------------------------------------------+
+double FindLiquidityAbove(double entry)   // H1 structural liquidity
 {
    int w = InpSwingHalfWidth;
    int maxi = MathMin(InpScanBars, (int)Bars(_Symbol, InpTrendTF) - w - 1);
@@ -364,6 +426,9 @@ double NormalizePrice(double p)
    return NormalizeDouble(p, (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS));
 }
 
+//+------------------------------------------------------------------+
+//| Backtest summary -> JSON (FILE_COMMON = shared, deterministic)   |
+//+------------------------------------------------------------------+
 double OnTester()
 {
    double pf     = TesterStatistics(STAT_PROFIT_FACTOR);
@@ -393,7 +458,7 @@ double OnTester()
    s += StringFormat("  \"sharpe\": %.4f\n",           sharpe);
    s += "}\n";
 
-   int h = FileOpen("fvg_result.json", FILE_WRITE|FILE_TXT|FILE_ANSI);
+   int h = FileOpen("fvg_result.json", FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
    if(h != INVALID_HANDLE) { FileWriteString(h, s); FileClose(h); }
 
    return pf;
