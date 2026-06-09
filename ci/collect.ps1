@@ -1,14 +1,35 @@
 $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Force -Path results | Out-Null
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$json = "$env:MT5_DATA\MQL5\Files\fvg_result.json"
-if (Test-Path $json) {
-  Copy-Item $json "results\result-$stamp.json" -Force
-  Copy-Item $json "results\latest.json" -Force
-  Write-Host "JSON取得OK"
-} else { Write-Host "JSONなし" }
-$report = "$env:TEMP\report.htm"
-if (Test-Path $report) {
-  Copy-Item $report "results\report-$stamp.htm" -Force
-  Write-Host "HTMLレポート取得OK"
+
+$mqRoot = Join-Path $env:APPDATA "MetaQuotes"
+$searchDirs = @(
+  (Join-Path $mqRoot "Tester"),
+  (Join-Path $mqRoot "Terminal\Common\Files")
+)
+if ($env:MT5_DATA) { $searchDirs += (Join-Path $env:MT5_DATA "MQL5\Files") }
+
+$cutoff = (Get-Date).AddMinutes(-60)
+$found = $searchDirs | Where-Object { Test-Path $_ } |
+  ForEach-Object { Get-ChildItem -Path $_ -Recurse -Filter "fvg_result.json" -ErrorAction SilentlyContinue } |
+  Where-Object { $_.LastWriteTime -ge $cutoff } |
+  Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
+if ($found) {
+  Copy-Item $found.FullName "results\result-$stamp.json" -Force
+  Copy-Item $found.FullName "results\latest.json" -Force
+  Write-Host "JSON found: $($found.FullName)"
+  Write-Host "Modified: $($found.LastWriteTime)"
+} else {
+  Write-Host "JSON not found (fresh) in Tester/Common/Data"
+}
+
+$repDirs = @($env:MT5_INSTALL, $env:MT5_DATA, $env:TEMP) | Where-Object { $_ -and (Test-Path $_) }
+$rep = $repDirs |
+  ForEach-Object { Get-ChildItem -Path $_ -Filter "*report*.htm" -ErrorAction SilentlyContinue } |
+  Where-Object { $_.LastWriteTime -ge $cutoff } |
+  Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if ($rep) {
+  Copy-Item $rep.FullName "results\report-$stamp.htm" -Force
+  Write-Host "Report found: $($rep.FullName)"
 }
