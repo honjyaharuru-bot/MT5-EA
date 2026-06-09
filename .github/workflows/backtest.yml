@@ -1,4 +1,4 @@
-name: MT5 Backtest
+﻿name: MT5 Backtest
 on:
   push:
     paths:
@@ -15,7 +15,7 @@ jobs:
       MT5_INSTALL: 'C:\Program Files\MetaTrader 5 IC Markets Global'
       MT5_DATA: 'C:\Users\Administrator\AppData\Roaming\MetaQuotes\Terminal\010E047102812FC0C18890992854220E'
       SYMBOL: EURUSD
-      PERIOD: M5
+      PERIOD:  M15
       FROM: 2022.01.01
       TO: 2024.12.31
       DEPOSIT: '10000'
@@ -59,3 +59,4 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
           Copy-Item results\* $dest -Force -ErrorAction SilentlyContinue
           Write-Host "Sync done: $dest"
+
