@@ -1,66 +1,90 @@
 //+------------------------------------------------------------------+
-//|                                                        FVG_EA.mq5 |
-//|                    FVG EA Ver2.0  (MT5)                           |
-//|   Bias = H1 trend, Entry = M15 BOS + FVG (limit-only)            |
-//|   Rule: if the FVG is NOT filled (limit not hit) -> NO ENTRY      |
+//|  FVG_EA_v3.mq5                                                   |
+//|  Ver3.0  H1 bias + liquidity sweep + M15 displacement FVG        |
+//|  All comments ASCII only (CI / Windows-1252 safe)                |
+//|                                                                  |
+//|  Design notes (read before tuning):                              |
+//|   - Each entry filter has an ON/OFF input so you can test        |
+//|     incrementally (raw FVG first, then add filters one by one).  |
+//|   - RR is tunable. Partial TP (close at 1R, move SL to BE) is ON  |
+//|     by default to lower break-even win rate. Set                 |
+//|     InpUsePartialTP=false to reproduce the strict 1:2 spec.      |
+//|   - OnTester writes JSON via FILE_COMMON to                       |
+//|     Terminal\Common\Files\fvg_result.json (same as v2 pipeline). |
+//|   - Long/short outcomes are tallied in OnTradeTransaction.        |
 //+------------------------------------------------------------------+
-#property copyright "FVG EA Ver2.0"
-#property version   "2.00"
+#property copyright "FVG_EA"
+#property version   "3.00"
 #property strict
 
-#include <Trade/Trade.mqh>
+#include <Trade\Trade.mqh>
+
 CTrade trade;
 
-input group "=== General ==="
-input long    InpMagic           = 990015;
-input double  InpRiskPercent     = 1.0;
-input double  InpFixedLot        = 0.10;
-input int     InpMaxSpreadPoints = 25;
-input int     InpSlippagePoints  = 10;
+//==================== Risk / exit ====================
+input double InpRiskPercent   = 1.0;    // risk per trade (percent of balance)
+input double InpTargetRR       = 2.0;   // final reward:risk
+input bool   InpUsePartialTP   = true;  // close part at partial RR, move SL to BE
+input double InpPartialRR       = 1.0;  // partial take profit in R
+input double InpPartialPct      = 50.0; // percent of volume closed at partial
 
-input group "=== Timeframes ==="
-input ENUM_TIMEFRAMES InpTrendTF = PERIOD_H1;   // bias / liquidity
-input ENUM_TIMEFRAMES InpBosTF   = PERIOD_M15;  // BOS / FVG / entry
+//==================== H1 bias ====================
+input ENUM_TIMEFRAMES InpBiasTF      = PERIOD_H1;
+input int    InpSwingLeftRight       = 3;   // pivot strength (bars each side)
+input int    InpSwingScan            = 60;  // bars scanned for swings
 
-input group "=== Structure ==="
-input int     InpSwingHalfWidth  = 3;
-input int     InpScanBars        = 300;
+//==================== Liquidity sweep (bias TF) ====================
+input bool   InpRequireSweep   = true;  // require a stop-hunt wick before bias
+input double InpSweepPips        = 15.0; // wick pierces prior swing up to this (pips)
+input int    InpSweepLookback   = 12;   // bias-TF bars back to look for the sweep
 
-input group "=== FVG ==="
-input int     InpATRPeriod       = 14;
-input double  InpATRMultiplier   = 0.5;
-input double  InpSLBufferPoints  = 30;
-input double  InpMinRR           = 1.5;
+//==================== H1 FVG quality (confluence) ====================
+input bool   InpRequireH1FVG   = true;  // require a qualifying H1 FVG zone
+input double InpH1GapAtrMult   = 1.5;   // H1 FVG gap >= ATR(H1) * this
+input int    InpAtrPeriod       = 14;
 
-input group "=== Entry / Fill rule ==="
-input double  InpEntryFillRatio  = 0.5;   // 0=near edge, 0.5=mid, 1.0=full fill
-input int     InpFillWindowBars  = 8;     // cancel pending if unfilled within N M15 bars
+//==================== M15 execution ====================
+input ENUM_TIMEFRAMES InpExecTF      = PERIOD_M15;
+input bool   InpRequireDisplacement  = true; // require big displacement candle
+input double InpDispBodyMult          = 1.5; // mid body >= avg body * this
+input int    InpAvgBodyLen            = 10;  // bars used for average body
+input bool   InpUseSplitEntry         = true; // 50% at tip, 50% at 50% retr
+input double InpFillRatio              = 0.5; // retracement for 2nd leg
+input int    InpFillWindowBars        = 8;   // cancel pending after N exec bars
+input double InpSLBufferPips          = 5.0; // SL buffer beyond origin candle
 
-input group "=== Sessions ==="
-input bool    InpUseSession      = true;
-input int     InpLondonStart     = 8;
-input int     InpLondonEnd       = 17;
-input int     InpNYStart         = 13;
-input int     InpNYEnd           = 22;
+input long   InpMagic = 30300;
 
-input group "=== News ==="
-input bool    InpUseNewsFilter   = true;
-input int     InpNewsBeforeMin   = 30;
-input int     InpNewsAfterMin    = 30;
+//==================== Globals ====================
+double   g_pip      = 0.0;
+int      g_hAtrH1   = INVALID_HANDLE;
+datetime g_lastExecBar = 0;
 
-int      g_atrHandle = INVALID_HANDLE;
-datetime g_lastBarTime = 0;
+// pending tracking
+datetime g_pendingPlacedBar = 0;
+int      g_pendingDir       = 0;   // 1 buy, -1 sell, 0 none
+
+// position management
+bool     g_partialDone = false;
+double   g_posRiskDist = 0.0;      // SL distance (price) for current position
+
+// outcome tally (for JSON)
+int      g_longTrades=0, g_longWins=0;
+int      g_shortTrades=0, g_shortWins=0;
 
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   trade.SetExpertMagicNumber(InpMagic);
-   trade.SetDeviationInPoints(InpSlippagePoints);
+   trade.SetExpertMagicNumber((ulong)InpMagic);
    trade.SetTypeFillingBySymbol(_Symbol);
-   g_atrHandle = iATR(_Symbol, InpBosTF, InpATRPeriod);
-   if(g_atrHandle == INVALID_HANDLE)
+
+   int d = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   g_pip = ((d==3 || d==5) ? 10.0 : 1.0) * _Point;
+
+   g_hAtrH1 = iATR(_Symbol, InpBiasTF, InpAtrPeriod);
+   if(g_hAtrH1==INVALID_HANDLE)
    {
-      Print("ATR handle creation failed");
+      Print("ATR handle failed");
       return(INIT_FAILED);
    }
    return(INIT_SUCCEEDED);
@@ -68,399 +92,462 @@ int OnInit()
 
 void OnDeinit(const int reason)
 {
-   if(g_atrHandle != INVALID_HANDLE) IndicatorRelease(g_atrHandle);
+   if(g_hAtrH1!=INVALID_HANDLE) IndicatorRelease(g_hAtrH1);
 }
 
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   datetime t = iTime(_Symbol, InpBosTF, 0);
-   if(t == g_lastBarTime) return;     // act once per new M15 bar
-   g_lastBarTime = t;
+   ManageOpenPosition();
+   ManagePending();
 
-   ManagePending();                   // handle waiting limit first
+   datetime curExec = iTime(_Symbol, InpExecTF, 0);
+   if(curExec==g_lastExecBar) return;   // act once per closed exec bar
+   g_lastExecBar = curExec;
 
-   if(HasPosition()) return;          // already in a trade
-   if(HasPending())  return;          // a limit is waiting for the FVG fill
+   if(HasPositionOrPending()) return;   // 1 setup at a time
 
-   if(InpUseSession && !InSession()) return;
-   if(!SpreadOK()) return;
-   if(InpUseNewsFilter && NewsBlock()) return;
-
-   int trend = GetTrend();
-   if(trend == 0) return;
-
-   if(trend > 0) TryLong();
-   else          TryShort();
+   EvaluateSetup();
 }
 
 //+------------------------------------------------------------------+
-//| Pending management: enforce "no fill -> no entry"                |
+//| State checks                                                     |
+//+------------------------------------------------------------------+
+bool HasPositionOrPending()
+{
+   for(int i=PositionsTotal()-1; i>=0; i--)
+   {
+      ulong t=PositionGetTicket(i);
+      if(t==0) continue;
+      if(PositionGetString(POSITION_SYMBOL)==_Symbol &&
+         PositionGetInteger(POSITION_MAGIC)==InpMagic) return true;
+   }
+   for(int i=OrdersTotal()-1; i>=0; i--)
+   {
+      ulong t=OrderGetTicket(i);
+      if(t==0) continue;
+      if(OrderGetString(ORDER_SYMBOL)==_Symbol &&
+         OrderGetInteger(ORDER_MAGIC)==InpMagic) return true;
+   }
+   return false;
+}
+
+bool HasOpenPosition()
+{
+   for(int i=PositionsTotal()-1; i>=0; i--)
+   {
+      ulong t=PositionGetTicket(i);
+      if(t==0) continue;
+      if(PositionGetString(POSITION_SYMBOL)==_Symbol &&
+         PositionGetInteger(POSITION_MAGIC)==InpMagic) return true;
+   }
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| H1 swing detection (simple pivots)                               |
+//+------------------------------------------------------------------+
+bool IsSwingHigh(ENUM_TIMEFRAMES tf,int idx,int lr)
+{
+   double h=iHigh(_Symbol,tf,idx);
+   for(int k=1;k<=lr;k++)
+   {
+      if(iHigh(_Symbol,tf,idx+k)>=h) return false;
+      if(iHigh(_Symbol,tf,idx-k)>h)  return false;
+   }
+   return true;
+}
+bool IsSwingLow(ENUM_TIMEFRAMES tf,int idx,int lr)
+{
+   double l=iLow(_Symbol,tf,idx);
+   for(int k=1;k<=lr;k++)
+   {
+      if(iLow(_Symbol,tf,idx+k)<=l) return false;
+      if(iLow(_Symbol,tf,idx-k)<l)  return false;
+   }
+   return true;
+}
+
+// returns last two swing highs/lows (prices and bar index)
+bool LastSwings(ENUM_TIMEFRAMES tf,double &sh1,double &sh2,double &sl1,double &sl2,
+                int &shIdx1,int &slIdx1)
+{
+   int lr=InpSwingLeftRight;
+   int got_h=0, got_l=0;
+   sh1=sh2=sl1=sl2=0; shIdx1=slIdx1=-1;
+   for(int i=lr+1; i<=InpSwingScan && i<Bars(_Symbol,tf)-lr-1; i++)
+   {
+      if(got_h<2 && IsSwingHigh(tf,i,lr))
+      {
+         if(got_h==0){ sh1=iHigh(_Symbol,tf,i); shIdx1=i; }
+         else        { sh2=iHigh(_Symbol,tf,i); }
+         got_h++;
+      }
+      if(got_l<2 && IsSwingLow(tf,i,lr))
+      {
+         if(got_l==0){ sl1=iLow(_Symbol,tf,i); slIdx1=i; }
+         else        { sl2=iLow(_Symbol,tf,i); }
+         got_l++;
+      }
+      if(got_h>=2 && got_l>=2) break;
+   }
+   return(got_h>=2 && got_l>=2);
+}
+
+// 1 up, -1 down, 0 none
+int H1Trend()
+{
+   double sh1,sh2,sl1,sl2; int shi,sli;
+   if(!LastSwings(InpBiasTF,sh1,sh2,sl1,sl2,shi,sli)) return 0;
+   if(sh1>sh2 && sl1>sl2) return 1;   // HH + HL
+   if(sh1<sh2 && sl1<sl2) return -1;  // LH + LL
+   return 0;
+}
+
+//+------------------------------------------------------------------+
+//| Liquidity sweep: recent wick pierced a prior swing and closed    |
+//| back. For up bias we want a sell-side sweep (below a swing low). |
+//+------------------------------------------------------------------+
+bool SweepConfirmed(int dir)
+{
+   if(!InpRequireSweep) return true;
+   double sh1,sh2,sl1,sl2; int shi,sli;
+   if(!LastSwings(InpBiasTF,sh1,sh2,sl1,sl2,shi,sli)) return false;
+   double tol=InpSweepPips*g_pip;
+
+   for(int i=1;i<=InpSweepLookback;i++)
+   {
+      double hi=iHigh(_Symbol,InpBiasTF,i);
+      double lo=iLow(_Symbol,InpBiasTF,i);
+      double cl=iClose(_Symbol,InpBiasTF,i);
+      if(dir>0)
+      {
+         // wick below prior swing low, within tol, close back above it
+         if(lo < sl1 && lo >= sl1-tol && cl > sl1) return true;
+      }
+      else if(dir<0)
+      {
+         if(hi > sh1 && hi <= sh1+tol && cl < sh1) return true;
+      }
+   }
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| H1 FVG quality gate (gap >= ATR*mult, aligned with bias)         |
+//+------------------------------------------------------------------+
+bool H1FVGOk(int dir)
+{
+   if(!InpRequireH1FVG) return true;
+   double atr[1];
+   if(CopyBuffer(g_hAtrH1,0,1,1,atr)!=1) return false;
+   double minGap=atr[0]*InpH1GapAtrMult;
+
+   // scan recent H1 3-candle FVGs (A oldest .. C newest)
+   for(int i=1;i<=InpSweepLookback;i++)
+   {
+      double aHigh=iHigh(_Symbol,InpBiasTF,i+2);
+      double aLow =iLow (_Symbol,InpBiasTF,i+2);
+      double cHigh=iHigh(_Symbol,InpBiasTF,i);
+      double cLow =iLow (_Symbol,InpBiasTF,i);
+      if(dir>0 && cLow>aHigh && (cLow-aHigh)>=minGap) return true;  // bullish gap
+      if(dir<0 && aLow>cHigh && (aLow-cHigh)>=minGap) return true;  // bearish gap
+   }
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Average body of recent exec-TF candles                           |
+//+------------------------------------------------------------------+
+double AvgBody(int startIdx,int len)
+{
+   double s=0; int n=0;
+   for(int i=startIdx;i<startIdx+len;i++)
+   {
+      s+=MathAbs(iClose(_Symbol,InpExecTF,i)-iOpen(_Symbol,InpExecTF,i));
+      n++;
+   }
+   return(n>0 ? s/n : 0);
+}
+
+//+------------------------------------------------------------------+
+//| Find latest M15 FVG aligned with bias. Fills out levels.         |
+//|  A = bar 3 (oldest), B = bar 2 (displacement), C = bar 1 (newest)|
+//|  Bullish: C.low > A.high (gap). tip = C.low (near edge on dip),  |
+//|           mid = (A.high+C.low)/2, SL ref = B.low.                |
+//+------------------------------------------------------------------+
+bool FindM15FVG(int dir,double &tip,double &mid,double &slRef)
+{
+   int a=3, b=2, c=1;
+   double aHigh=iHigh(_Symbol,InpExecTF,a);
+   double aLow =iLow (_Symbol,InpExecTF,a);
+   double bHigh=iHigh(_Symbol,InpExecTF,b);
+   double bLow =iLow (_Symbol,InpExecTF,b);
+   double cHigh=iHigh(_Symbol,InpExecTF,c);
+   double cLow =iLow (_Symbol,InpExecTF,c);
+
+   // displacement check on middle candle
+   if(InpRequireDisplacement)
+   {
+      double body=MathAbs(iClose(_Symbol,InpExecTF,b)-iOpen(_Symbol,InpExecTF,b));
+      double avg =AvgBody(b+1,InpAvgBodyLen);
+      if(avg<=0 || body < avg*InpDispBodyMult) return false;
+   }
+
+   if(dir>0)
+   {
+      if(!(cLow>aHigh)) return false;          // valid bullish gap
+      tip   = cLow;                            // near edge
+      mid   = (aHigh+cLow)/2.0;
+      slRef = bLow;                            // origin candle opposite end
+      return true;
+   }
+   else if(dir<0)
+   {
+      if(!(aLow>cHigh)) return false;          // valid bearish gap
+      tip   = cHigh;                           // near edge
+      mid   = (aLow+cHigh)/2.0;
+      slRef = bHigh;
+      return true;
+   }
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Lot sizing from risk and SL distance                             |
+//+------------------------------------------------------------------+
+double CalcLot(double riskMoney,double slDistPrice)
+{
+   double tickVal =SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_VALUE);
+   double tickSize=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE);
+   if(tickSize<=0 || tickVal<=0 || slDistPrice<=0) return 0;
+
+   double lossPerLot=(slDistPrice/tickSize)*tickVal;
+   if(lossPerLot<=0) return 0;
+   double lot=riskMoney/lossPerLot;
+
+   double step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
+   double vmin=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
+   double vmax=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX);
+   lot=MathFloor(lot/step)*step;
+   if(lot<vmin) lot=0;        // below min -> skip this leg
+   if(lot>vmax) lot=vmax;
+   return NormalizeDouble(lot,2);
+}
+
+//+------------------------------------------------------------------+
+//| Build setup and place pending limit order(s)                     |
+//+------------------------------------------------------------------+
+void EvaluateSetup()
+{
+   int dir=H1Trend();
+   if(dir==0) return;
+   if(!SweepConfirmed(dir)) return;
+   if(!H1FVGOk(dir)) return;
+
+   double tip,mid,slRef;
+   if(!FindM15FVG(dir,tip,mid,slRef)) return;
+
+   double buf=InpSLBufferPips*g_pip;
+   double sl,slDist;
+   if(dir>0) sl=slRef-buf; else sl=slRef+buf;
+
+   slDist=MathAbs(tip-sl);
+   if(slDist<=0) return;
+
+   double tp;
+   if(dir>0) tp=tip+slDist*InpTargetRR; else tp=tip-slDist*InpTargetRR;
+
+   double riskMoney=AccountInfoDouble(ACCOUNT_BALANCE)*InpRiskPercent/100.0;
+   double leg1Risk = InpUseSplitEntry ? riskMoney*0.5 : riskMoney;
+
+   tip=NormalizeDouble(tip,_Digits);
+   sl =NormalizeDouble(sl ,_Digits);
+   tp =NormalizeDouble(tp ,_Digits);
+
+   double lot1=CalcLot(leg1Risk,slDist);
+   bool placed=false;
+   if(lot1>0)
+   {
+      if(dir>0) placed = trade.BuyLimit (lot1,tip,_Symbol,sl,tp,ORDER_TIME_GTC,0,"v3-leg1");
+      else      placed = trade.SellLimit(lot1,tip,_Symbol,sl,tp,ORDER_TIME_GTC,0,"v3-leg1");
+   }
+
+   if(InpUseSplitEntry)
+   {
+      double entry2=NormalizeDouble(mid,_Digits);
+      double slDist2=MathAbs(entry2-sl);
+      double tp2 = (dir>0) ? entry2+slDist2*InpTargetRR : entry2-slDist2*InpTargetRR;
+      tp2=NormalizeDouble(tp2,_Digits);
+      double lot2=CalcLot(riskMoney*0.5,slDist2);
+      if(lot2>0)
+      {
+         if(dir>0) trade.BuyLimit (lot2,entry2,_Symbol,sl,tp2,ORDER_TIME_GTC,0,"v3-leg2");
+         else      trade.SellLimit(lot2,entry2,_Symbol,sl,tp2,ORDER_TIME_GTC,0,"v3-leg2");
+         placed=true;
+      }
+   }
+
+   if(placed)
+   {
+      g_pendingPlacedBar=iTime(_Symbol,InpExecTF,0);
+      g_pendingDir=dir;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Cancel pending if window elapsed or bias flipped                 |
 //+------------------------------------------------------------------+
 void ManagePending()
 {
-   int barSec = PeriodSeconds(InpBosTF);
-   int trend  = GetTrend();
-
-   for(int i = OrdersTotal()-1; i >= 0; i--)
+   if(g_pendingDir==0) return;
+   bool anyPending=false;
+   for(int i=OrdersTotal()-1;i>=0;i--)
    {
-      ulong tk = OrderGetTicket(i);
-      if(tk == 0) continue;
-      if(OrderGetString(ORDER_SYMBOL)   != _Symbol)  continue;
-      if(OrderGetInteger(ORDER_MAGIC)   != InpMagic) continue;
+      ulong t=OrderGetTicket(i);
+      if(t==0) continue;
+      if(OrderGetString(ORDER_SYMBOL)!=_Symbol) continue;
+      if(OrderGetInteger(ORDER_MAGIC)!=InpMagic) continue;
+      anyPending=true;
+   }
+   if(!anyPending){ g_pendingDir=0; return; }
 
-      long     type  = OrderGetInteger(ORDER_TYPE);
-      datetime setup = (datetime)OrderGetInteger(ORDER_TIME_SETUP);
-      bool isBuy  = (type == ORDER_TYPE_BUY_LIMIT);
-      bool isSell = (type == ORDER_TYPE_SELL_LIMIT);
+   // bars elapsed since placement
+   int bars=0;
+   datetime now=iTime(_Symbol,InpExecTF,0);
+   for(int i=0;i<InpFillWindowBars+5;i++)
+   {
+      if(iTime(_Symbol,InpExecTF,i)<=g_pendingPlacedBar) break;
+      bars++;
+   }
+   bool flip=(H1Trend()!=g_pendingDir);
 
-      // (1) FVG not filled within the window -> cancel, no entry
-      if(TimeCurrent() - setup >= (long)InpFillWindowBars * barSec)
+   if(bars>=InpFillWindowBars || flip)
+   {
+      for(int i=OrdersTotal()-1;i>=0;i--)
       {
-         trade.OrderDelete(tk);
-         Print("FVG not filled within window -> cancel pending, NO ENTRY");
-         continue;
+         ulong t=OrderGetTicket(i);
+         if(t==0) continue;
+         if(OrderGetString(ORDER_SYMBOL)!=_Symbol) continue;
+         if(OrderGetInteger(ORDER_MAGIC)!=InpMagic) continue;
+         trade.OrderDelete(t);
       }
-      // (2) trend flipped before fill -> setup stale, cancel
-      if(isBuy  && trend <  1) { trade.OrderDelete(tk); Print("Trend no longer up -> cancel buy pending");  continue; }
-      if(isSell && trend > -1) { trade.OrderDelete(tk); Print("Trend no longer down -> cancel sell pending"); continue; }
+      g_pendingDir=0;
    }
-}
-
-bool HasPosition()
-{
-   for(int i = PositionsTotal()-1; i >= 0; i--)
-   {
-      ulong tk = PositionGetTicket(i);
-      if(tk == 0) continue;
-      if(PositionGetString(POSITION_SYMBOL) == _Symbol &&
-         PositionGetInteger(POSITION_MAGIC) == InpMagic)
-         return true;
-   }
-   return false;
-}
-
-bool HasPending()
-{
-   for(int i = OrdersTotal()-1; i >= 0; i--)
-   {
-      ulong tk = OrderGetTicket(i);
-      if(tk == 0) continue;
-      if(OrderGetString(ORDER_SYMBOL)  == _Symbol &&
-         OrderGetInteger(ORDER_MAGIC)  == InpMagic)
-         return true;
-   }
-   return false;
 }
 
 //+------------------------------------------------------------------+
-bool InSession()
-{
-   MqlDateTime dt;
-   TimeToStruct(TimeCurrent(), dt);
-   int h = dt.hour;
-   bool london = (h >= InpLondonStart && h < InpLondonEnd);
-   bool ny     = (h >= InpNYStart     && h < InpNYEnd);
-   return (london || ny);
-}
-
-bool SpreadOK()
-{
-   long sp = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
-   return (sp <= InpMaxSpreadPoints);
-}
-
-bool NewsBlock()
-{
-   if(MQLInfoInteger(MQL_TESTER)) return false;
-   datetime now  = TimeCurrent();
-   datetime from = now - InpNewsAfterMin*60;
-   datetime to   = now + InpNewsBeforeMin*60;
-   string currencies[2] = {"USD","EUR"};
-   for(int c = 0; c < 2; c++)
-   {
-      MqlCalendarValue values[];
-      int n = CalendarValueHistory(values, from, to, NULL, currencies[c]);
-      for(int i = 0; i < n; i++)
-      {
-         MqlCalendarEvent ev;
-         if(!CalendarEventById(values[i].event_id, ev)) continue;
-         if(ev.importance == CALENDAR_IMPORTANCE_HIGH)
-            return true;
-      }
-   }
-   return false;
-}
-
+//| Partial TP at InpPartialRR and move SL to break-even             |
 //+------------------------------------------------------------------+
-bool IsFractalHigh(ENUM_TIMEFRAMES tf, int i, int w)
+void ManageOpenPosition()
 {
-   double h = iHigh(_Symbol, tf, i);
-   for(int k = 1; k <= w; k++)
-   {
-      if(iHigh(_Symbol, tf, i+k) >= h) return false;
-      if(iHigh(_Symbol, tf, i-k) >= h) return false;
-   }
-   return true;
-}
+   if(!HasOpenPosition()){ g_partialDone=false; g_posRiskDist=0; return; }
+   if(!InpUsePartialTP) return;
+   if(g_partialDone) return;
 
-bool IsFractalLow(ENUM_TIMEFRAMES tf, int i, int w)
-{
-   double l = iLow(_Symbol, tf, i);
-   for(int k = 1; k <= w; k++)
+   for(int i=PositionsTotal()-1;i>=0;i--)
    {
-      if(iLow(_Symbol, tf, i+k) <= l) return false;
-      if(iLow(_Symbol, tf, i-k) <= l) return false;
-   }
-   return true;
-}
+      ulong t=PositionGetTicket(i);
+      if(t==0) continue;
+      if(PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
+      if(PositionGetInteger(POSITION_MAGIC)!=InpMagic) continue;
 
-void GetSwings(ENUM_TIMEFRAMES tf, int w, int scan,
-               double &h1, int &h1b, double &h2, int &h2b,
-               double &l1, int &l1b, double &l2, int &l2b)
-{
-   h1=h2=l1=l2=0; h1b=h2b=l1b=l2b=-1;
-   int foundH=0, foundL=0;
-   int bars = (int)Bars(_Symbol, tf);
-   int maxi = MathMin(scan, bars - w - 1);
-   for(int i = w; i <= maxi && (foundH<2 || foundL<2); i++)
-   {
-      if(foundH < 2 && IsFractalHigh(tf, i, w))
+      long   type =PositionGetInteger(POSITION_TYPE);
+      double open =PositionGetDouble(POSITION_PRICE_OPEN);
+      double sl   =PositionGetDouble(POSITION_SL);
+      double vol  =PositionGetDouble(POSITION_VOLUME);
+      double risk =MathAbs(open-sl);
+      if(risk<=0) continue;
+
+      double price=(type==POSITION_TYPE_BUY)
+                   ? SymbolInfoDouble(_Symbol,SYMBOL_BID)
+                   : SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+      double rNow=(type==POSITION_TYPE_BUY)?(price-open)/risk:(open-price)/risk;
+
+      if(rNow>=InpPartialRR)
       {
-         if(foundH==0){ h1=iHigh(_Symbol,tf,i); h1b=i; }
-         else         { h2=iHigh(_Symbol,tf,i); h2b=i; }
-         foundH++;
-      }
-      if(foundL < 2 && IsFractalLow(tf, i, w))
-      {
-         if(foundL==0){ l1=iLow(_Symbol,tf,i); l1b=i; }
-         else         { l2=iLow(_Symbol,tf,i); l2b=i; }
-         foundL++;
+         double step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
+         double closeVol=MathFloor((vol*InpPartialPct/100.0)/step)*step;
+         double vmin=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
+         if(closeVol>=vmin && closeVol<vol)
+            trade.PositionClosePartial(t,closeVol);
+         // move remaining SL to break-even
+         double be=NormalizeDouble(open,_Digits);
+         double tp=PositionGetDouble(POSITION_TP);
+         trade.PositionModify(t,be,tp);
+         g_partialDone=true;
       }
    }
 }
 
-int GetTrend()   // H1 bias
+//+------------------------------------------------------------------+
+//| Tally long/short outcomes for JSON                               |
+//+------------------------------------------------------------------+
+void OnTradeTransaction(const MqlTradeTransaction &trans,
+                        const MqlTradeRequest &req,
+                        const MqlTradeResult &res)
 {
-   double h1,h2,l1,l2; int h1b,h2b,l1b,l2b;
-   GetSwings(InpTrendTF, InpSwingHalfWidth, InpScanBars,
-             h1,h1b,h2,h2b,l1,l1b,l2,l2b);
-   if(h1b<0 || h2b<0 || l1b<0 || l2b<0) return 0;
-   bool hh = (h1 > h2);
-   bool hl = (l1 > l2);
-   bool ll = (l1 < l2);
-   bool lh = (h1 < h2);
-   if(hh && hl) return  1;
-   if(ll && lh) return -1;
-   return 0;
-}
+   if(trans.type!=TRADE_TRANSACTION_DEAL_ADD) return;
+   if(!HistoryDealSelect(trans.deal)) return;
+   if(HistoryDealGetInteger(trans.deal,DEAL_MAGIC)!=InpMagic) return;
+   if(HistoryDealGetString(trans.deal,DEAL_SYMBOL)!=_Symbol) return;
+   if(HistoryDealGetInteger(trans.deal,DEAL_ENTRY)!=DEAL_ENTRY_OUT) return;
 
-double GetATR()
-{
-   double buf[];
-   if(CopyBuffer(g_atrHandle, 0, 0, 1, buf) <= 0) return 0;
-   return buf[0];
-}
-
-double NormalizeLot(double lot)
-{
-   double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-   double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
-   double step   = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-   if(step <= 0) step = 0.01;
-   lot = MathFloor(lot/step)*step;
-   if(lot < minLot) lot = minLot;
-   if(lot > maxLot) lot = maxLot;
-   return lot;
-}
-
-double CalcLot(double slDistancePrice)
-{
-   if(InpRiskPercent <= 0.0 || slDistancePrice <= 0.0)
-      return NormalizeLot(InpFixedLot);
-   double balance   = AccountInfoDouble(ACCOUNT_BALANCE);
-   double riskMoney = balance * InpRiskPercent / 100.0;
-   double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
-   double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-   if(tickValue <= 0 || tickSize <= 0) return NormalizeLot(InpFixedLot);
-   double lossPerLot = (slDistancePrice / tickSize) * tickValue;
-   if(lossPerLot <= 0) return NormalizeLot(InpFixedLot);
-   return NormalizeLot(riskMoney / lossPerLot);
+   double profit=HistoryDealGetDouble(trans.deal,DEAL_PROFIT)
+                +HistoryDealGetDouble(trans.deal,DEAL_SWAP)
+                +HistoryDealGetDouble(trans.deal,DEAL_COMMISSION);
+   long dtype=HistoryDealGetInteger(trans.deal,DEAL_TYPE);
+   // closing deal type is opposite of position direction
+   if(dtype==DEAL_TYPE_SELL) { g_longTrades++;  if(profit>0) g_longWins++; }
+   else if(dtype==DEAL_TYPE_BUY){ g_shortTrades++; if(profit>0) g_shortWins++; }
 }
 
 //+------------------------------------------------------------------+
-//| LONG: H1 trend up -> M15 BOS up -> first FVG -> limit @ fill zone |
-//+------------------------------------------------------------------+
-void TryLong()
-{
-   double h1,h2,l1,l2; int h1b,h2b,l1b,l2b;
-   GetSwings(InpBosTF, InpSwingHalfWidth, InpScanBars,
-             h1,h1b,h2,h2b,l1,l1b,l2,l2b);
-   if(h1b < 1) return;
-
-   int bosBar = -1;
-   for(int i = h1b-1; i >= 1; i--)
-      if(iClose(_Symbol, InpBosTF, i) > h1) bosBar = i;
-   if(bosBar < 0) return;
-
-   double atr = GetATR();
-   if(atr <= 0) return;
-   double minSize = atr * InpATRMultiplier;
-
-   double fvgTop=0, fvgBottom=0;
-   bool found=false;
-   for(int j = h1b; j >= 1; j--)
-   {
-      double lowJ  = iLow(_Symbol,  InpBosTF, j);
-      double highJ2= iHigh(_Symbol, InpBosTF, j+2);
-      if(lowJ > highJ2 && (lowJ - highJ2) >= minSize)
-      {
-         fvgTop = lowJ; fvgBottom = highJ2; found = true;
-         break;
-      }
-   }
-   if(!found) return;
-
-   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   double entry = NormalizePrice(fvgTop - InpEntryFillRatio*(fvgTop - fvgBottom));
-   double sl    = NormalizePrice(fvgBottom - InpSLBufferPoints*point);
-   double tp    = NormalizePrice(FindLiquidityAbove(entry));
-   if(tp <= 0) return;
-
-   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   if(entry >= ask) return;
-   if((entry - sl) <= 0) return;
-   if((tp - entry) / (entry - sl) < InpMinRR) return;
-
-   double lot   = CalcLot(entry - sl);
-   int barSec   = PeriodSeconds(InpBosTF);
-   datetime exp = TimeCurrent() + (long)(InpFillWindowBars+1) * barSec;
-
-   if(trade.BuyLimit(lot, entry, _Symbol, sl, tp, ORDER_TIME_SPECIFIED, exp, "FVG_BUY"))
-      PrintFormat("FVG buy pending @ %.5f (SL %.5f TP %.5f) waiting fill within %d M15 bars",
-                  entry, sl, tp, InpFillWindowBars);
-}
-
-//+------------------------------------------------------------------+
-//| SHORT: mirror of TryLong                                         |
-//+------------------------------------------------------------------+
-void TryShort()
-{
-   double h1,h2,l1,l2; int h1b,h2b,l1b,l2b;
-   GetSwings(InpBosTF, InpSwingHalfWidth, InpScanBars,
-             h1,h1b,h2,h2b,l1,l1b,l2,l2b);
-   if(l1b < 1) return;
-
-   int bosBar = -1;
-   for(int i = l1b-1; i >= 1; i--)
-      if(iClose(_Symbol, InpBosTF, i) < l1) bosBar = i;
-   if(bosBar < 0) return;
-
-   double atr = GetATR();
-   if(atr <= 0) return;
-   double minSize = atr * InpATRMultiplier;
-
-   double fvgTop=0, fvgBottom=0;
-   bool found=false;
-   for(int j = l1b; j >= 1; j--)
-   {
-      double highJ = iHigh(_Symbol, InpBosTF, j);
-      double lowJ2 = iLow(_Symbol,  InpBosTF, j+2);
-      if(highJ < lowJ2 && (lowJ2 - highJ) >= minSize)
-      {
-         fvgTop = lowJ2; fvgBottom = highJ; found = true;
-         break;
-      }
-   }
-   if(!found) return;
-
-   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   double entry = NormalizePrice(fvgBottom + InpEntryFillRatio*(fvgTop - fvgBottom));
-   double sl    = NormalizePrice(fvgTop + InpSLBufferPoints*point);
-   double tp    = NormalizePrice(FindLiquidityBelow(entry));
-   if(tp <= 0) return;
-
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   if(entry <= bid) return;
-   if((sl - entry) <= 0) return;
-   if((entry - tp) / (sl - entry) < InpMinRR) return;
-
-   double lot   = CalcLot(sl - entry);
-   int barSec   = PeriodSeconds(InpBosTF);
-   datetime exp = TimeCurrent() + (long)(InpFillWindowBars+1) * barSec;
-
-   if(trade.SellLimit(lot, entry, _Symbol, sl, tp, ORDER_TIME_SPECIFIED, exp, "FVG_SELL"))
-      PrintFormat("FVG sell pending @ %.5f (SL %.5f TP %.5f) waiting fill within %d M15 bars",
-                  entry, sl, tp, InpFillWindowBars);
-}
-
-//+------------------------------------------------------------------+
-double FindLiquidityAbove(double entry)   // H1 structural liquidity
-{
-   int w = InpSwingHalfWidth;
-   int maxi = MathMin(InpScanBars, (int)Bars(_Symbol, InpTrendTF) - w - 1);
-   for(int i = w; i <= maxi; i++)
-      if(IsFractalHigh(InpTrendTF, i, w))
-      {
-         double h = iHigh(_Symbol, InpTrendTF, i);
-         if(h > entry) return h;
-      }
-   return 0;
-}
-
-double FindLiquidityBelow(double entry)
-{
-   int w = InpSwingHalfWidth;
-   int maxi = MathMin(InpScanBars, (int)Bars(_Symbol, InpTrendTF) - w - 1);
-   for(int i = w; i <= maxi; i++)
-      if(IsFractalLow(InpTrendTF, i, w))
-      {
-         double l = iLow(_Symbol, InpTrendTF, i);
-         if(l < entry) return l;
-      }
-   return 0;
-}
-
-double NormalizePrice(double p)
-{
-   return NormalizeDouble(p, (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS));
-}
-
-//+------------------------------------------------------------------+
-//| Backtest summary -> JSON (FILE_COMMON = shared, deterministic)   |
+//| Write result JSON (FILE_COMMON, same as v2 pipeline)             |
 //+------------------------------------------------------------------+
 double OnTester()
 {
-   double pf     = TesterStatistics(STAT_PROFIT_FACTOR);
-   double payoff = TesterStatistics(STAT_EXPECTED_PAYOFF);
-   double net    = TesterStatistics(STAT_PROFIT);
-   double trades = TesterStatistics(STAT_TRADES);
-   double won    = TesterStatistics(STAT_PROFIT_TRADES);
-   double lost   = TesterStatistics(STAT_LOSS_TRADES);
-   double grossP = TesterStatistics(STAT_GROSS_PROFIT);
-   double grossL = TesterStatistics(STAT_GROSS_LOSS);
-   double ddRel  = TesterStatistics(STAT_EQUITY_DDREL_PERCENT);
-   double sharpe = TesterStatistics(STAT_SHARPE_RATIO);
+   double trades =TesterStatistics(STAT_TRADES);
+   double wins   =TesterStatistics(STAT_PROFIT_TRADES);
+   double losses =TesterStatistics(STAT_LOSS_TRADES);
+   double pf     =TesterStatistics(STAT_PROFIT_FACTOR);
+   double net    =TesterStatistics(STAT_PROFIT);
+   double ddpct  =TesterStatistics(STAT_BALANCE_DDREL_PERCENT);
+   double grossP =TesterStatistics(STAT_GROSS_PROFIT);
+   double grossL =TesterStatistics(STAT_GROSS_LOSS);
 
-   double winrate = (trades > 0) ? won / trades * 100.0 : 0.0;
-   double avgWin  = (won  > 0)   ? grossP / won          : 0.0;
-   double avgLoss = (lost > 0)   ? MathAbs(grossL) / lost : 0.0;
-   double avgRR   = (avgLoss > 0)? avgWin / avgLoss       : 0.0;
+   double winRate=(trades>0)?(wins/trades*100.0):0.0;
+   double avgWin =(wins>0)?(grossP/wins):0.0;
+   double avgLoss=(losses>0)?(MathAbs(grossL)/losses):0.0;
+   double avgRR  =(avgLoss>0)?(avgWin/avgLoss):0.0;
+   double lWR=(g_longTrades>0)?(100.0*g_longWins/g_longTrades):0.0;
+   double sWR=(g_shortTrades>0)?(100.0*g_shortWins/g_shortTrades):0.0;
 
-   string s = "{\n";
-   s += StringFormat("  \"profit_factor\": %.4f,\n",   pf);
-   s += StringFormat("  \"expected_payoff\": %.4f,\n", payoff);
-   s += StringFormat("  \"net_profit\": %.2f,\n",      net);
-   s += StringFormat("  \"trades\": %d,\n",            (int)trades);
-   s += StringFormat("  \"win_rate_pct\": %.2f,\n",    winrate);
-   s += StringFormat("  \"avg_rr\": %.4f,\n",          avgRR);
-   s += StringFormat("  \"max_dd_rel_pct\": %.2f,\n",  ddRel);
-   s += StringFormat("  \"sharpe\": %.4f\n",           sharpe);
-   s += "}\n";
+   string js="{";
+   js+="\"version\":\"3.0\",";
+   js+="\"symbol\":\""+_Symbol+"\",";
+   js+="\"trades\":"+IntegerToString((int)trades)+",";
+   js+="\"wins\":"+IntegerToString((int)wins)+",";
+   js+="\"losses\":"+IntegerToString((int)losses)+",";
+   js+="\"win_rate\":"+DoubleToString(winRate,2)+",";
+   js+="\"profit_factor\":"+DoubleToString(pf,3)+",";
+   js+="\"avg_rr\":"+DoubleToString(avgRR,3)+",";
+   js+="\"net_profit\":"+DoubleToString(net,2)+",";
+   js+="\"max_dd_pct\":"+DoubleToString(ddpct,2)+",";
+   js+="\"long_trades\":"+IntegerToString(g_longTrades)+",";
+   js+="\"long_win_rate\":"+DoubleToString(lWR,2)+",";
+   js+="\"short_trades\":"+IntegerToString(g_shortTrades)+",";
+   js+="\"short_win_rate\":"+DoubleToString(sWR,2);
+   js+="}";
 
-   int h = FileOpen("fvg_result.json", FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
-   if(h != INVALID_HANDLE) { FileWriteString(h, s); FileClose(h); }
+   int h=FileOpen("fvg_result.json",FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
+   if(h!=INVALID_HANDLE)
+   {
+      FileWriteString(h,js);
+      FileClose(h);
+   }
+   else Print("OnTester: FileOpen failed ",GetLastError());
 
-   return pf;
+   return(net);
 }
 //+------------------------------------------------------------------+
