@@ -1,0 +1,10 @@
+{
+  "profit_factor": 0.7079,
+  "expected_payoff": -15.3023,
+  "net_profit": -6243.33,
+  "trades": 408,
+  "win_rate_pct": 21.08,
+  "avg_rr": 2.6505,
+  "max_dd_rel_pct": 65.56,
+  "sharpe": -5.0000
+}
