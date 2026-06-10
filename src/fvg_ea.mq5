@@ -14,7 +14,7 @@
 //|   - Long/short outcomes are tallied in OnTradeTransaction.        |
 //+------------------------------------------------------------------+
 #property copyright "FVG_EA"
-#property version   "3.00"
+#property version   "3.10"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -24,7 +24,7 @@ CTrade trade;
 //==================== Risk / exit ====================
 input double InpRiskPercent   = 1.0;    // risk per trade (percent of balance)
 input double InpTargetRR       = 2.0;   // final reward:risk
-input bool   InpUsePartialTP   = true;  // close part at partial RR, move SL to BE
+input bool   InpUsePartialTP   = false; // close part at partial RR, move SL to BE
 input double InpPartialRR       = 1.0;  // partial take profit in R
 input double InpPartialPct      = 50.0; // percent of volume closed at partial
 
@@ -34,21 +34,21 @@ input int    InpSwingLeftRight       = 3;   // pivot strength (bars each side)
 input int    InpSwingScan            = 60;  // bars scanned for swings
 
 //==================== Liquidity sweep (bias TF) ====================
-input bool   InpRequireSweep   = true;  // require a stop-hunt wick before bias
+input bool   InpRequireSweep   = false; // require a stop-hunt wick before bias
 input double InpSweepPips        = 15.0; // wick pierces prior swing up to this (pips)
 input int    InpSweepLookback   = 12;   // bias-TF bars back to look for the sweep
 
 //==================== H1 FVG quality (confluence) ====================
-input bool   InpRequireH1FVG   = true;  // require a qualifying H1 FVG zone
+input bool   InpRequireH1FVG   = false; // require a qualifying H1 FVG zone
 input double InpH1GapAtrMult   = 1.5;   // H1 FVG gap >= ATR(H1) * this
 input int    InpAtrPeriod       = 14;
 
 //==================== M15 execution ====================
 input ENUM_TIMEFRAMES InpExecTF      = PERIOD_M15;
-input bool   InpRequireDisplacement  = true; // require big displacement candle
+input bool   InpRequireDisplacement  = false; // require big displacement candle
 input double InpDispBodyMult          = 1.5; // mid body >= avg body * this
 input int    InpAvgBodyLen            = 10;  // bars used for average body
-input bool   InpUseSplitEntry         = true; // 50% at tip, 50% at 50% retr
+input bool   InpUseSplitEntry         = false; // 50% at tip, 50% at 50% retr
 input double InpFillRatio              = 0.5; // retracement for 2nd leg
 input int    InpFillWindowBars        = 8;   // cancel pending after N exec bars
 input double InpSLBufferPips          = 5.0; // SL buffer beyond origin candle
@@ -524,7 +524,7 @@ double OnTester()
    double sWR=(g_shortTrades>0)?(100.0*g_shortWins/g_shortTrades):0.0;
 
    string js="{";
-   js+="\"version\":\"3.0\",";
+   js+="\"version\":\"3.1-raw\",";
    js+="\"symbol\":\""+_Symbol+"\",";
    js+="\"trades\":"+IntegerToString((int)trades)+",";
    js+="\"wins\":"+IntegerToString((int)wins)+",";
