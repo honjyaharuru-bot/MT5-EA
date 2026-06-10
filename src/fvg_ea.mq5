@@ -14,7 +14,7 @@
 //|   - Long/short outcomes are tallied in OnTradeTransaction.        |
 //+------------------------------------------------------------------+
 #property copyright "FVG_EA"
-#property version   "3.10"
+#property version   "3.20"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -45,7 +45,7 @@ input int    InpAtrPeriod       = 14;
 
 //==================== M15 execution ====================
 input ENUM_TIMEFRAMES InpExecTF      = PERIOD_M15;
-input bool   InpRequireDisplacement  = false; // require big displacement candle
+input bool   InpRequireDisplacement  = true;  // require big displacement candle
 input double InpDispBodyMult          = 1.5; // mid body >= avg body * this
 input int    InpAvgBodyLen            = 10;  // bars used for average body
 input bool   InpUseSplitEntry         = false; // 50% at tip, 50% at 50% retr
@@ -524,7 +524,7 @@ double OnTester()
    double sWR=(g_shortTrades>0)?(100.0*g_shortWins/g_shortTrades):0.0;
 
    string js="{";
-   js+="\"version\":\"3.1-raw\",";
+   js+="\"version\":\"3.2-disp\",";
    js+="\"symbol\":\""+_Symbol+"\",";
    js+="\"trades\":"+IntegerToString((int)trades)+",";
    js+="\"wins\":"+IntegerToString((int)wins)+",";
