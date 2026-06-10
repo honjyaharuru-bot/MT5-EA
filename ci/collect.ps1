@@ -18,6 +18,14 @@ $found = $searchDirs | Where-Object { Test-Path $_ } |
 if ($found) {
   Copy-Item $found.FullName "results\result-$stamp.json" -Force
   Copy-Item $found.FullName "results\latest.json" -Force
+  if ($env:SYMBOL) {
+    try { $j = Get-Content $found.FullName -Raw | ConvertFrom-Json } catch { $j = $null }
+    if ($j -and $j.symbol -eq $env:SYMBOL) {
+      Copy-Item $found.FullName "results\result_$($env:SYMBOL).json" -Force
+    } else {
+      Write-Host "WARN: freshest JSON symbol '$($j.symbol)' != expected '$env:SYMBOL' - no per-symbol file written"
+    }
+  }
   Write-Host "JSON found: $($found.FullName)"
   Write-Host "Modified: $($found.LastWriteTime)"
 } else {

@@ -1,4 +1,4 @@
-﻿name: MT5 Backtest
+name: MT5 Backtest
 on:
   push:
     paths:
@@ -28,12 +28,19 @@ jobs:
       - name: Compile
         shell: powershell
         run: ./ci/compile.ps1
-      - name: Backtest
+      - name: Backtest all symbols
         shell: powershell
-        run: ./ci/backtest.ps1
-      - name: Collect results
-        shell: powershell
-        run: ./ci/collect.ps1
+        run: |
+          # Edit this line to add/remove pairs (e.g. add "AUDUSD","USDCAD")
+          $symbols = "EURUSD","GBPUSD","USDJPY"
+          foreach ($sym in $symbols) {
+            Write-Host "================ $sym ================"
+            $env:SYMBOL = $sym
+            # Separate process per symbol so an exit/error in one pair
+            # does not abort the whole loop.
+            powershell -ExecutionPolicy Bypass -File .\ci\backtest.ps1
+            powershell -ExecutionPolicy Bypass -File .\ci\collect.ps1
+          }
       - name: Commit results
         shell: powershell
         run: |
@@ -59,4 +66,3 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
           Copy-Item results\* $dest -Force -ErrorAction SilentlyContinue
           Write-Host "Sync done: $dest"
-
