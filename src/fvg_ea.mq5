@@ -14,7 +14,7 @@
 //|   - Long/short outcomes are tallied in OnTradeTransaction.        |
 //+------------------------------------------------------------------+
 #property copyright "FVG_EA"
-#property version   "3.30"
+#property version   "3.40"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -24,7 +24,7 @@ CTrade trade;
 //==================== Risk / exit ====================
 input double InpRiskPercent   = 1.0;    // risk per trade (percent of balance)
 input double InpTargetRR       = 2.0;   // final reward:risk
-input bool   InpUsePartialTP   = true;  // close part at partial RR, move SL to BE
+input bool   InpUsePartialTP   = false; // close part at partial RR, move SL to BE
 input double InpPartialRR       = 1.0;  // partial take profit in R
 input double InpPartialPct      = 50.0; // percent of volume closed at partial
 
@@ -199,8 +199,8 @@ int H1Trend()
 {
    double sh1,sh2,sl1,sl2; int shi,sli;
    if(!LastSwings(InpBiasTF,sh1,sh2,sl1,sl2,shi,sli)) return 0;
-   if(sh1>sh2 && sl1>sl2) return 1;   // HH + HL
-   if(sh1<sh2 && sl1<sl2) return -1;  // LH + LL
+   if(sh1>sh2 && sl1>sl2) return -1;  // HH+HL -> inverted to short
+   if(sh1<sh2 && sl1<sl2) return 1;   // LH+LL -> inverted to long
    return 0;
 }
 
@@ -524,7 +524,7 @@ double OnTester()
    double sWR=(g_shortTrades>0)?(100.0*g_shortWins/g_shortTrades):0.0;
 
    string js="{";
-   js+="\"version\":\"3.3-ptp\",";
+   js+="\"version\":\"3.4-inv\",";
    js+="\"symbol\":\""+_Symbol+"\",";
    js+="\"trades\":"+IntegerToString((int)trades)+",";
    js+="\"wins\":"+IntegerToString((int)wins)+",";
