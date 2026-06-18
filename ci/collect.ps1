@@ -1,6 +1,8 @@
 $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Force -Path results | Out-Null
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$common = (Split-Path $env:MT5_DATA -Parent) + "\Common\Files"
+Copy-Item "$common\result_$($env:SYMBOL).json" "results\result_$($env:SYMBOL).json" -Force
 
 $mqRoot = Join-Path $env:APPDATA "MetaQuotes"
 $searchDirs = @(
