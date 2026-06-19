@@ -5,11 +5,11 @@
 //| All comments ASCII only. OnTester writes small JSON per symbol.   |
 //+------------------------------------------------------------------+
 #property copyright "EA dev"
-#property version   "1.00"
+#property version   "1.10"
 
 #include <Trade/Trade.mqh>
 
-#define EA_VERSION "range_breakout_retrace_v1"
+#define EA_VERSION "range_breakout_retrace_v1_1"
 
 //--- risk / sizing
 input double InpRiskPct          = 1.0;    // Risk per trade (% of balance)
@@ -39,6 +39,9 @@ input bool   InpEnablePullback   = false;  // Enable pullback re-entries (v2)
 input int    InpMaxPositions     = 1;      // Max stacked positions
 input double InpPullbackMinPct   = 30.0;   // Min pullback % of last leg for re-entry
 
+//--- cost modeling (deterministic, for cost-included PF in OnTester)
+input double InpCommissionPerLotRT = 7.0;  // Round-turn commission per 1.0 lot (USD)
+
 //--- globals
 CTrade   trade;
 int      atrM10Handle = INVALID_HANDLE;
@@ -49,6 +52,7 @@ EPhase   phase = PH_SEARCH;
 double   gRH=0, gRL=0;        // range high/low (pre-breakout)
 double   gPeak=0, gTrough=0;  // post-breakout extreme
 int      gSetupBars=0;        // bars elapsed since breakout
+double   gTotalVolume=0.0;    // accumulated entry volume (for commission calc)
 
 // per-position tracking for giveback trail
 ulong    posTickets[];
@@ -170,8 +174,9 @@ void OpenLong()
    if(tp<=ask) tp=0.0;
    double lots=LotsForRisk(slDist);
    if(lots<=0) return;
-   trade.Buy(lots,_Symbol,ask,NormalizeDouble(sl,_Digits),
-             (tp>0?NormalizeDouble(tp,_Digits):0.0),EA_VERSION);
+   if(trade.Buy(lots,_Symbol,ask,NormalizeDouble(sl,_Digits),
+             (tp>0?NormalizeDouble(tp,_Digits):0.0),EA_VERSION))
+      gTotalVolume+=lots;
   }
 //+------------------------------------------------------------------+
 void OpenShort()
@@ -187,8 +192,9 @@ void OpenShort()
    if(tp>=bid) tp=0.0;
    double lots=LotsForRisk(slDist);
    if(lots<=0) return;
-   trade.Sell(lots,_Symbol,bid,NormalizeDouble(sl,_Digits),
-              (tp>0?NormalizeDouble(tp,_Digits):0.0),EA_VERSION);
+   if(trade.Sell(lots,_Symbol,bid,NormalizeDouble(sl,_Digits),
+              (tp>0?NormalizeDouble(tp,_Digits):0.0),EA_VERSION))
+      gTotalVolume+=lots;
   }
 //+------------------------------------------------------------------+
 int FindSlot(ulong tk)
@@ -353,10 +359,15 @@ double OnTester()
    double wins    = TesterStatistics(STAT_PROFIT_TRADES);
    double ev      = (trades>0) ? profit/trades : 0.0;
    double winrate = (trades>0) ? wins/trades*100.0 : 0.0;
+   double commission = gTotalVolume*InpCommissionPerLotRT;
+   double netAfter   = profit-commission;
+   double evAfter    = (trades>0) ? netAfter/trades : 0.0;
+   double denom      = (-grossL)+commission;
+   double pfAfter    = (denom>0) ? grossP/denom : 0.0;
 
    string js=StringFormat(
-      "{\"version\":\"%s\",\"symbol\":\"%s\",\"trades\":%d,\"net_profit\":%.2f,\"profit_factor\":%.3f,\"ev_per_trade\":%.4f,\"max_dd_pct\":%.2f,\"gross_profit\":%.2f,\"gross_loss\":%.2f,\"win_rate\":%.2f}",
-      EA_VERSION,_Symbol,(int)trades,profit,pf,ev,maxdd,grossP,grossL,winrate);
+      "{\"version\":\"%s\",\"symbol\":\"%s\",\"trades\":%d,\"net_profit\":%.2f,\"profit_factor\":%.3f,\"ev_per_trade\":%.4f,\"max_dd_pct\":%.2f,\"gross_profit\":%.2f,\"gross_loss\":%.2f,\"win_rate\":%.2f,\"total_volume\":%.2f,\"commission_rt_per_lot\":%.2f,\"total_commission\":%.2f,\"net_after_cost\":%.2f,\"ev_after_cost\":%.4f,\"pf_after_cost\":%.3f}",
+      EA_VERSION,_Symbol,(int)trades,profit,pf,ev,maxdd,grossP,grossL,winrate,gTotalVolume,InpCommissionPerLotRT,commission,netAfter,evAfter,pfAfter);
 
    string fname="result_"+_Symbol+".json";
    int h=FileOpen(fname,FILE_WRITE|FILE_BIN|FILE_COMMON);
