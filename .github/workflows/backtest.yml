@@ -19,7 +19,7 @@ jobs:
       FROM: 2022.01.01
       TO: 2024.12.31
       DEPOSIT: '10000'
-      MODEL: '1'
+      MODEL: '4'
     steps:
       - uses: actions/checkout@v4
       - name: Copy EA into MT5
