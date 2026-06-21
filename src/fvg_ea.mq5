@@ -1,15 +1,16 @@
 //+------------------------------------------------------------------+
-//| range_breakout_retrace_v1.mq5                                     |
-//| M10 range breakout, 80pct retrace entry, M30 HH/HL trend gate     |
-//| Exit: 50pct profit target + 50pct giveback trailing               |
-//| All comments ASCII only. OnTester writes small JSON per symbol.   |
+//| range_breakout_retrace_v2.mq5                                     |
+//| Entry identical to v1 (M10 range breakout, 80pct retrace, M30 gate)|
+//| Exit redesigned: R-multiple TP + optional breakeven + R-trail     |
+//| R = |entry - initial SL|. Commission booked in OnTester (cost PF). |
+//| All comments ASCII only.                                          |
 //+------------------------------------------------------------------+
 #property copyright "EA dev"
-#property version   "1.10"
+#property version   "2.00"
 
 #include <Trade/Trade.mqh>
 
-#define EA_VERSION "range_breakout_retrace_v1_1"
+#define EA_VERSION "range_breakout_retrace_v2"
 
 //--- risk / sizing
 input double InpRiskPct          = 1.0;    // Risk per trade (% of balance)
@@ -27,17 +28,18 @@ input double InpMaxRangeATR      = 2.5;    // If flatness on: range width <= mul
 input bool   InpUseM30Trend      = true;   // Require M30 HH+HL (long) / LH+LL (short)
 input int    InpM30Lookback      = 24;     // M30 bars for trend window (split in two halves)
 
-//--- exits
-input double InpExitProfitPct    = 50.0;   // TP = % of (peak - entry) distance
-input double InpExitGivebackPct  = 50.0;   // Trail: give back % of (maxfav - entry)
-input bool   InpUseGiveback      = true;   // Enable giveback trailing stop
-input int    InpStopMode         = 0;      // 0=structural(range bound) 1=ATR
+//--- exits (v2: R-multiple based; R = |entry - initial SL|)
+input int    InpStopMode         = 0;      // 0=structural(range bound) 1=ATR  (defines R)
 input double InpStopATR          = 1.5;    // SL = mult * ATR(M10) if StopMode=1
+input double InpTP_R             = 2.0;    // Fixed TP at this R multiple (0 = none, rely on trail)
+input double InpBE_R             = 1.0;    // Move SL to breakeven at this R (0 = off)
+input bool   InpUseRTrail        = false;  // Enable R-based trailing
+input double InpTrailStart_R     = 1.5;    // Start trailing once profit >= this R
+input double InpTrailDist_R      = 1.0;    // Trail SL this many R behind max favorable
 
-//--- pullback re-entry (off for raw v1 signal test)
-input bool   InpEnablePullback   = false;  // Enable pullback re-entries (v2)
+//--- pullback re-entry (off for raw signal test)
+input bool   InpEnablePullback   = false;  // Enable pullback re-entries
 input int    InpMaxPositions     = 1;      // Max stacked positions
-input double InpPullbackMinPct   = 30.0;   // Min pullback % of last leg for re-entry
 
 //--- cost modeling (deterministic, for cost-included PF in OnTester)
 input double InpCommissionPerLotRT = 7.0;  // Round-turn commission per 1.0 lot (USD)
@@ -54,10 +56,11 @@ double   gPeak=0, gTrough=0;  // post-breakout extreme
 int      gSetupBars=0;        // bars elapsed since breakout
 double   gTotalVolume=0.0;    // accumulated entry volume (for commission calc)
 
-// per-position tracking for giveback trail
+// per-position tracking
 ulong    posTickets[];
 double   posEntry[];
 double   posMaxFav[];
+double   posR[];              // R distance in price (|entry - initial SL|)
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -169,10 +172,9 @@ void OpenLong()
    if(InpStopMode==1) sl=ask-InpStopATR*ATRM10();
    else               sl=gRL;
    if(sl>=ask) return;
-   double slDist=ask-sl;
-   double tp=ask+(InpExitProfitPct/100.0)*(gPeak-ask);
-   if(tp<=ask) tp=0.0;
-   double lots=LotsForRisk(slDist);
+   double R=ask-sl;
+   double tp=(InpTP_R>0) ? ask+InpTP_R*R : 0.0;
+   double lots=LotsForRisk(R);
    if(lots<=0) return;
    if(trade.Buy(lots,_Symbol,ask,NormalizeDouble(sl,_Digits),
              (tp>0?NormalizeDouble(tp,_Digits):0.0),EA_VERSION))
@@ -187,10 +189,9 @@ void OpenShort()
    if(InpStopMode==1) sl=bid+InpStopATR*ATRM10();
    else               sl=gRH;
    if(sl<=bid) return;
-   double slDist=sl-bid;
-   double tp=bid-(InpExitProfitPct/100.0)*(bid-gTrough);
-   if(tp>=bid) tp=0.0;
-   double lots=LotsForRisk(slDist);
+   double R=sl-bid;
+   double tp=(InpTP_R>0) ? bid-InpTP_R*R : 0.0;
+   double lots=LotsForRisk(R);
    if(lots<=0) return;
    if(trade.Sell(lots,_Symbol,bid,NormalizeDouble(sl,_Digits),
               (tp>0?NormalizeDouble(tp,_Digits):0.0),EA_VERSION))
@@ -203,13 +204,14 @@ int FindSlot(ulong tk)
       if(posTickets[i]==tk) return i;
    return -1;
   }
-int AddSlot(ulong tk,double entry)
+int AddSlot(ulong tk,double entry,double r)
   {
    int n=ArraySize(posTickets);
    ArrayResize(posTickets,n+1);
    ArrayResize(posEntry,n+1);
    ArrayResize(posMaxFav,n+1);
-   posTickets[n]=tk; posEntry[n]=entry; posMaxFav[n]=entry;
+   ArrayResize(posR,n+1);
+   posTickets[n]=tk; posEntry[n]=entry; posMaxFav[n]=entry; posR[n]=r;
    return n;
   }
 void RemoveSlot(int idx)
@@ -220,15 +222,16 @@ void RemoveSlot(int idx)
       posTickets[i]=posTickets[i+1];
       posEntry[i]=posEntry[i+1];
       posMaxFav[i]=posMaxFav[i+1];
+      posR[i]=posR[i+1];
      }
    ArrayResize(posTickets,n-1);
    ArrayResize(posEntry,n-1);
    ArrayResize(posMaxFav,n-1);
+   ArrayResize(posR,n-1);
   }
 //+------------------------------------------------------------------+
 void ManagePositions()
   {
-   // mark closed slots
    for(int i=ArraySize(posTickets)-1;i>=0;i--)
      {
       if(!PositionSelectByTicket(posTickets[i]))
@@ -247,21 +250,32 @@ void ManagePositions()
       double sl=PositionGetDouble(POSITION_SL);
       double tp=PositionGetDouble(POSITION_TP);
       int s=FindSlot(tk);
-      if(s<0) s=AddSlot(tk,entry);
-      if(!InpUseGiveback) continue;
+      if(s<0) s=AddSlot(tk,entry,MathAbs(entry-sl));
+      double R=posR[s];
+      if(R<=0) continue;
       if(type==POSITION_TYPE_BUY)
         {
          if(bid>posMaxFav[s]) posMaxFav[s]=bid;
-         double newSL=posMaxFav[s]-(InpExitGivebackPct/100.0)*(posMaxFav[s]-entry);
-         if(newSL>sl && newSL<bid)
-            trade.PositionModify(tk,NormalizeDouble(newSL,_Digits),tp);
+         if(InpBE_R>0 && (bid-entry)>=InpBE_R*R && sl<entry)
+            trade.PositionModify(tk,NormalizeDouble(entry,_Digits),tp);
+         if(InpUseRTrail && (posMaxFav[s]-entry)>=InpTrailStart_R*R)
+           {
+            double newSL=posMaxFav[s]-InpTrailDist_R*R;
+            if(newSL>sl && newSL<bid)
+               trade.PositionModify(tk,NormalizeDouble(newSL,_Digits),tp);
+           }
         }
       else
         {
-         if(bid<posMaxFav[s] || posMaxFav[s]==entry) { if(bid<posMaxFav[s]) posMaxFav[s]=bid; }
-         double newSL=posMaxFav[s]+(InpExitGivebackPct/100.0)*(entry-posMaxFav[s]);
-         if((sl==0 || newSL<sl) && newSL>ask)
-            trade.PositionModify(tk,NormalizeDouble(newSL,_Digits),tp);
+         if(posMaxFav[s]==entry || bid<posMaxFav[s]) { if(bid<posMaxFav[s]) posMaxFav[s]=bid; }
+         if(InpBE_R>0 && (entry-ask)>=InpBE_R*R && (sl>entry || sl==0))
+            trade.PositionModify(tk,NormalizeDouble(entry,_Digits),tp);
+         if(InpUseRTrail && (entry-posMaxFav[s])>=InpTrailStart_R*R)
+           {
+            double newSL=posMaxFav[s]+InpTrailDist_R*R;
+            if((sl==0 || newSL<sl) && newSL>ask)
+               trade.PositionModify(tk,NormalizeDouble(newSL,_Digits),tp);
+           }
         }
      }
   }
@@ -275,7 +289,7 @@ void OnNewM10Bar()
       if(InpUseFlatness)
         {
          double atr=ATRM10();
-         if(atr>0 && (gRH-gRL) > InpMaxRangeATR*atr) return; // not a tight range
+         if(atr>0 && (gRH-gRL) > InpMaxRangeATR*atr) return;
         }
       double c1=iClose(_Symbol,PERIOD_M10,1);
       if(c1>gRH)
@@ -290,7 +304,7 @@ void OnNewM10Bar()
    else
      {
       gSetupBars++;
-      if(gSetupBars>InpSetupMaxBars) phase=PH_SEARCH; // stale setup, reset
+      if(gSetupBars>InpSetupMaxBars) phase=PH_SEARCH;
      }
   }
 //+------------------------------------------------------------------+
@@ -312,15 +326,15 @@ void OnTick()
       double leg=gPeak-gRH;
       if(leg>0)
         {
-         double trig=gPeak-(InpRetraceEntryPct/100.0)*leg; // 80% retrace down from peak
-         if(bid<=gRH) { phase=PH_SEARCH; }                 // failed breakout (>100% retrace)
+         double trig=gPeak-(InpRetraceEntryPct/100.0)*leg;
+         if(bid<=gRH) { phase=PH_SEARCH; }
          else if(bid<=trig)
            {
             int tr = InpUseM30Trend ? M30Trend() : 1;
             if(tr==1)
               {
                OpenLong();
-               phase=PH_SEARCH;                            // stop new breakout search while in trade
+               phase=PH_SEARCH;
               }
            }
         }
@@ -331,7 +345,7 @@ void OnTick()
       double leg=gRL-gTrough;
       if(leg>0)
         {
-         double trig=gTrough+(InpRetraceEntryPct/100.0)*leg; // 80% retrace up from trough
+         double trig=gTrough+(InpRetraceEntryPct/100.0)*leg;
          if(ask>=gRL) { phase=PH_SEARCH; }
          else if(ask>=trig)
            {
@@ -376,6 +390,6 @@ double OnTester()
       FileWriteString(h,js);
       FileClose(h);
      }
-   return pf;
+   return pfAfter;
   }
 //+------------------------------------------------------------------+
