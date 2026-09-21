@@ -11,6 +11,7 @@ permissions:
 jobs:
   backtest:
     runs-on: [self-hosted, windows, mt5]
+    timeout-minutes: 120
     env:
       MT5_INSTALL: 'C:\Program Files\MetaTrader 5 IC Markets Global'
       MT5_DATA: 'C:\Users\Administrator\AppData\Roaming\MetaQuotes\Terminal\010E047102812FC0C18890992854220E'
@@ -19,7 +20,7 @@ jobs:
       FROM: 2022.01.01
       TO: 2024.12.31
       DEPOSIT: '10000'
-      MODEL: '4'
+      MODEL: '1'
     steps:
       - uses: actions/checkout@v4
       - name: Copy EA into MT5
