@@ -1,0 +1,62 @@
+name: Edge Scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      offset:
+        description: 'Broker UTC offset (hours). MT5 server time. 2=winter 3=summer'
+        required: true
+        default: '3'
+      tag:
+        description: 'Version tag for output filename'
+        required: true
+        default: 'v1'
+
+jobs:
+  scan:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: claude/fvg-ea-mt5-DNeln
+
+      - name: Ensure deps
+        shell: powershell
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pandas numpy MetaTrader5
+
+      - name: Run edge scan
+        shell: powershell
+        run: |
+          $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+          $name  = "result_edgescan_${{ github.event.inputs.tag }}_$stamp.json"
+          echo "OUTNAME=$name" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          python research\edge_scan_v1.py `
+            --csvdir "C:\MT5-EA\data" `
+            --offset ${{ github.event.inputs.offset }} `
+            --out "$name"
+
+      - name: Copy result to Google Drive
+        shell: powershell
+        run: |
+          $g = (Get-ChildItem 'G:\' | Select-Object -First 1).FullName
+          $dst = Join-Path $g 'MT5-Results'
+          Copy-Item $env:OUTNAME -Destination $dst -Force
+          Write-Host "copied to $dst\$env:OUTNAME"
+
+      - name: Show summary in log
+        shell: powershell
+        run: |
+          $j = Get-Content $env:OUTNAME -Raw | ConvertFrom-Json
+          Write-Host "candidates:" $j.summary.candidates
+          $j.summary.candidate_labels | ForEach-Object { Write-Host " -" $_ }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: edgescan-json
+          path: ${{ env.OUTNAME }}

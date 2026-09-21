@@ -1,0 +1,782 @@
+{
+ "version": "edge_scan_v1",
+ "generated_utc": "2026-07-23T22:37:51.413764+00:00",
+ "params": {
+  "hold_bars": 8,
+  "cost_pips": 1.0,
+  "broker_utc_offset": 3,
+  "period": "2022-01-01..2024-12-31",
+  "tf": "M15"
+ },
+ "note": "verdict CANDIDATE = N>=100 かつ |t|>3 かつ 年別符号一致 かつ 純EV>0",
+ "meta": {
+  "EURUSD": {
+   "source": "mt5",
+   "bars": 74673,
+   "first": "2022-01-02 22:00:00+00:00",
+   "last": "2024-12-31 20:45:00+00:00",
+   "mt5_error": null
+  },
+  "GBPUSD": {
+   "source": "mt5",
+   "bars": 74671,
+   "first": "2022-01-02 22:00:00+00:00",
+   "last": "2024-12-31 20:45:00+00:00",
+   "mt5_error": null
+  },
+  "USDJPY": {
+   "source": "mt5",
+   "bars": 74667,
+   "first": "2022-01-02 22:00:00+00:00",
+   "last": "2024-12-31 20:45:00+00:00",
+   "mt5_error": null
+  }
+ },
+ "summary": {
+  "total": 37,
+  "candidates": 0,
+  "candidate_labels": []
+ },
+ "results": [
+  {
+   "label": "B03_monday_gap_fill",
+   "symbol": "GBPUSD",
+   "N": 79,
+   "EV_gross_pips": 4.733,
+   "EV_net_pips": 3.733,
+   "sd_pips": 14.52,
+   "t_stat": 2.9,
+   "trades_per_month": 2.2,
+   "win_rate_ref": 0.671,
+   "avg_MFE_pips": 14.08,
+   "avg_MAE_pips": -8.83,
+   "EV_by_year": {
+    "2022": 5.5,
+    "2023": 3.796,
+    "2024": 4.75
+   },
+   "sign_consistent": true,
+   "verdict": "N_TOO_SMALL"
+  },
+  {
+   "label": "B03_monday_gap_fill",
+   "symbol": "EURUSD",
+   "N": 44,
+   "EV_gross_pips": 5.707,
+   "EV_net_pips": 4.707,
+   "sd_pips": 13.1,
+   "t_stat": 2.89,
+   "trades_per_month": 1.2,
+   "win_rate_ref": 0.682,
+   "avg_MFE_pips": 12.58,
+   "avg_MAE_pips": -7.52,
+   "EV_by_year": {
+    "2022": 9.85,
+    "2023": 1.156,
+    "2024": 2.913
+   },
+   "sign_consistent": true,
+   "verdict": "N_TOO_SMALL"
+  },
+  {
+   "label": "B01_asia_range_fade",
+   "symbol": "GBPUSD",
+   "N": 829,
+   "EV_gross_pips": 2.053,
+   "EV_net_pips": 1.053,
+   "sd_pips": 21.85,
+   "t_stat": 2.71,
+   "trades_per_month": 23.0,
+   "win_rate_ref": 0.567,
+   "avg_MFE_pips": 16.19,
+   "avg_MAE_pips": -13.32,
+   "EV_by_year": {
+    "2022": 3.071,
+    "2023": 2.113,
+    "2024": 1.048
+   },
+   "sign_consistent": true,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "D03_donchian20",
+   "symbol": "EURUSD",
+   "N": 8725,
+   "EV_gross_pips": -0.499,
+   "EV_net_pips": -1.499,
+   "sd_pips": 17.27,
+   "t_stat": -2.7,
+   "trades_per_month": 242.3,
+   "win_rate_ref": 0.472,
+   "avg_MFE_pips": 11.37,
+   "avg_MAE_pips": -12.01,
+   "EV_by_year": {
+    "2022": -0.901,
+    "2023": -0.22,
+    "2024": -0.383
+   },
+   "sign_consistent": true,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "B03_monday_gap_fill",
+   "symbol": "USDJPY",
+   "N": 67,
+   "EV_gross_pips": 6.436,
+   "EV_net_pips": 5.436,
+   "sd_pips": 22.84,
+   "t_stat": 2.31,
+   "trades_per_month": 1.9,
+   "win_rate_ref": 0.582,
+   "avg_MFE_pips": 22.29,
+   "avg_MAE_pips": -14.54,
+   "EV_by_year": {
+    "2022": 10.469,
+    "2023": 4.341,
+    "2024": 6.264
+   },
+   "sign_consistent": true,
+   "verdict": "N_TOO_SMALL"
+  },
+  {
+   "label": "B01_asia_range_fade",
+   "symbol": "EURUSD",
+   "N": 821,
+   "EV_gross_pips": 1.136,
+   "EV_net_pips": 0.136,
+   "sd_pips": 15.68,
+   "t_stat": 2.08,
+   "trades_per_month": 22.8,
+   "win_rate_ref": 0.54,
+   "avg_MFE_pips": 11.75,
+   "avg_MAE_pips": -9.94,
+   "EV_by_year": {
+    "2022": 3.134,
+    "2023": -0.153,
+    "2024": 0.157
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "D03_donchian20",
+   "symbol": "GBPUSD",
+   "N": 8772,
+   "EV_gross_pips": -0.497,
+   "EV_net_pips": -1.497,
+   "sd_pips": 22.51,
+   "t_stat": -2.07,
+   "trades_per_month": 243.6,
+   "win_rate_ref": 0.484,
+   "avg_MFE_pips": 15.16,
+   "avg_MAE_pips": -15.73,
+   "EV_by_year": {
+    "2022": -0.957,
+    "2023": -0.018,
+    "2024": -0.507
+   },
+   "sign_consistent": true,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "C01_dow_Fri_long",
+   "symbol": "EURUSD",
+   "N": 156,
+   "EV_gross_pips": 1.487,
+   "EV_net_pips": 0.487,
+   "sd_pips": 10.45,
+   "t_stat": 1.78,
+   "trades_per_month": 4.3,
+   "win_rate_ref": 0.583,
+   "avg_MFE_pips": 8.61,
+   "avg_MAE_pips": -6.91,
+   "EV_by_year": {
+    "2022": 4.938,
+    "2023": 0.742,
+    "2024": -1.219
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "B02_london_fix_fade",
+   "symbol": "GBPUSD",
+   "N": 3145,
+   "EV_gross_pips": -0.594,
+   "EV_net_pips": -1.594,
+   "sd_pips": 19.86,
+   "t_stat": -1.68,
+   "trades_per_month": 87.3,
+   "win_rate_ref": 0.467,
+   "avg_MFE_pips": 13.91,
+   "avg_MAE_pips": -14.65,
+   "EV_by_year": {
+    "2022": -0.432,
+    "2023": -0.681,
+    "2024": -0.641
+   },
+   "sign_consistent": true,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "C01_dow_Fri_long",
+   "symbol": "GBPUSD",
+   "N": 156,
+   "EV_gross_pips": 1.566,
+   "EV_net_pips": 0.566,
+   "sd_pips": 12.08,
+   "t_stat": 1.62,
+   "trades_per_month": 4.3,
+   "win_rate_ref": 0.558,
+   "avg_MFE_pips": 10.57,
+   "avg_MAE_pips": -8.67,
+   "EV_by_year": {
+    "2022": 5.094,
+    "2023": 0.806,
+    "2024": -1.202
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "C01_dow_Wed_long",
+   "symbol": "USDJPY",
+   "N": 155,
+   "EV_gross_pips": 3.897,
+   "EV_net_pips": 2.897,
+   "sd_pips": 30.06,
+   "t_stat": 1.61,
+   "trades_per_month": 4.3,
+   "win_rate_ref": 0.548,
+   "avg_MFE_pips": 20.29,
+   "avg_MAE_pips": -17.82,
+   "EV_by_year": {
+    "2022": 1.3,
+    "2023": 5.848,
+    "2024": 4.555
+   },
+   "sign_consistent": true,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "D02_fvg_retrace",
+   "symbol": "GBPUSD",
+   "N": 10137,
+   "EV_gross_pips": 0.331,
+   "EV_net_pips": -0.669,
+   "sd_pips": 21.54,
+   "t_stat": 1.55,
+   "trades_per_month": 281.5,
+   "win_rate_ref": 0.51,
+   "avg_MFE_pips": 14.2,
+   "avg_MAE_pips": -13.89,
+   "EV_by_year": {
+    "2022": 0.612,
+    "2023": 0.536,
+    "2024": -0.154
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "C01_dow_Tue_long",
+   "symbol": "EURUSD",
+   "N": 157,
+   "EV_gross_pips": -1.171,
+   "EV_net_pips": -2.171,
+   "sd_pips": 9.52,
+   "t_stat": -1.54,
+   "trades_per_month": 4.4,
+   "win_rate_ref": 0.459,
+   "avg_MFE_pips": 7.33,
+   "avg_MAE_pips": -8.13,
+   "EV_by_year": {
+    "2022": -2.679,
+    "2023": -0.067,
+    "2024": -0.774
+   },
+   "sign_consistent": true,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "D01_london_breakout",
+   "symbol": "EURUSD",
+   "N": 539,
+   "EV_gross_pips": 1.101,
+   "EV_net_pips": 0.101,
+   "sd_pips": 17.13,
+   "t_stat": 1.49,
+   "trades_per_month": 15.0,
+   "win_rate_ref": 0.536,
+   "avg_MFE_pips": 13.66,
+   "avg_MAE_pips": -12.36,
+   "EV_by_year": {
+    "2022": 3.215,
+    "2023": -0.848,
+    "2024": 1.215
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "D02_fvg_retrace",
+   "symbol": "EURUSD",
+   "N": 10126,
+   "EV_gross_pips": 0.234,
+   "EV_net_pips": -0.766,
+   "sd_pips": 15.94,
+   "t_stat": 1.47,
+   "trades_per_month": 281.2,
+   "win_rate_ref": 0.51,
+   "avg_MFE_pips": 10.7,
+   "avg_MAE_pips": -10.63,
+   "EV_by_year": {
+    "2022": 0.4,
+    "2023": 0.031,
+    "2024": 0.263
+   },
+   "sign_consistent": true,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "C02_month_end",
+   "symbol": "EURUSD",
+   "N": 26,
+   "EV_gross_pips": 5.058,
+   "EV_net_pips": 4.058,
+   "sd_pips": 22.29,
+   "t_stat": 1.16,
+   "trades_per_month": 0.7,
+   "win_rate_ref": 0.615,
+   "avg_MFE_pips": 19.78,
+   "avg_MAE_pips": -15.86,
+   "EV_by_year": {
+    "2022": 4.933,
+    "2023": 5.056,
+    "2024": 5.2
+   },
+   "sign_consistent": true,
+   "verdict": "N_TOO_SMALL"
+  },
+  {
+   "label": "B04_pair_zscore",
+   "symbol": "EURUSD-GBPUSD",
+   "N": 942,
+   "EV_gross_pips": 0.376,
+   "EV_net_pips": -1.624,
+   "sd_pips": 12.96,
+   "t_stat": 0.89,
+   "trades_per_month": 26.2,
+   "win_rate_ref": 0.568,
+   "avg_MFE_pips": null,
+   "avg_MAE_pips": null,
+   "EV_by_year": {
+    "2022": -0.785,
+    "2023": -0.159,
+    "2024": 2.045
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "D01_london_breakout",
+   "symbol": "USDJPY",
+   "N": 361,
+   "EV_gross_pips": 1.429,
+   "EV_net_pips": 0.429,
+   "sd_pips": 33.32,
+   "t_stat": 0.82,
+   "trades_per_month": 10.0,
+   "win_rate_ref": 0.471,
+   "avg_MFE_pips": 20.89,
+   "avg_MAE_pips": -19.41,
+   "EV_by_year": {
+    "2022": 1.902,
+    "2023": 1.603,
+    "2024": 0.798
+   },
+   "sign_consistent": true,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "D03_donchian20",
+   "symbol": "USDJPY",
+   "N": 8261,
+   "EV_gross_pips": -0.281,
+   "EV_net_pips": -1.281,
+   "sd_pips": 31.05,
+   "t_stat": -0.82,
+   "trades_per_month": 229.4,
+   "win_rate_ref": 0.479,
+   "avg_MFE_pips": 20.31,
+   "avg_MAE_pips": -20.25,
+   "EV_by_year": {
+    "2022": 0.472,
+    "2023": -0.478,
+    "2024": -0.781
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "C01_dow_Mon_long",
+   "symbol": "GBPUSD",
+   "N": 154,
+   "EV_gross_pips": -1.508,
+   "EV_net_pips": -2.508,
+   "sd_pips": 23.2,
+   "t_stat": -0.81,
+   "trades_per_month": 4.3,
+   "win_rate_ref": 0.532,
+   "avg_MFE_pips": 10.25,
+   "avg_MAE_pips": -12.5,
+   "EV_by_year": {
+    "2022": -8.137,
+    "2023": 1.055,
+    "2024": 2.479
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "D02_fvg_retrace",
+   "symbol": "USDJPY",
+   "N": 10157,
+   "EV_gross_pips": 0.225,
+   "EV_net_pips": -0.775,
+   "sd_pips": 28.6,
+   "t_stat": 0.79,
+   "trades_per_month": 282.1,
+   "win_rate_ref": 0.504,
+   "avg_MFE_pips": 17.89,
+   "avg_MAE_pips": -18.06,
+   "EV_by_year": {
+    "2022": 0.353,
+    "2023": 0.033,
+    "2024": 0.293
+   },
+   "sign_consistent": true,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "B01_asia_range_fade",
+   "symbol": "USDJPY",
+   "N": 1142,
+   "EV_gross_pips": -0.968,
+   "EV_net_pips": -1.968,
+   "sd_pips": 42.29,
+   "t_stat": -0.77,
+   "trades_per_month": 31.7,
+   "win_rate_ref": 0.5,
+   "avg_MFE_pips": 22.94,
+   "avg_MAE_pips": -24.81,
+   "EV_by_year": {
+    "2022": 0.577,
+    "2023": -3.082,
+    "2024": -0.417
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "C01_dow_Tue_long",
+   "symbol": "GBPUSD",
+   "N": 157,
+   "EV_gross_pips": -0.745,
+   "EV_net_pips": -1.745,
+   "sd_pips": 13.2,
+   "t_stat": -0.71,
+   "trades_per_month": 4.4,
+   "win_rate_ref": 0.471,
+   "avg_MFE_pips": 10.1,
+   "avg_MAE_pips": -9.91,
+   "EV_by_year": {
+    "2022": -1.487,
+    "2023": 0.708,
+    "2024": -1.443
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "B02_london_fix_fade",
+   "symbol": "EURUSD",
+   "N": 3190,
+   "EV_gross_pips": 0.171,
+   "EV_net_pips": -0.829,
+   "sd_pips": 15.06,
+   "t_stat": 0.64,
+   "trades_per_month": 88.6,
+   "win_rate_ref": 0.488,
+   "avg_MFE_pips": 10.92,
+   "avg_MAE_pips": -10.74,
+   "EV_by_year": {
+    "2022": 0.363,
+    "2023": 0.102,
+    "2024": 0.036
+   },
+   "sign_consistent": true,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "C01_dow_Wed_long",
+   "symbol": "GBPUSD",
+   "N": 155,
+   "EV_gross_pips": -0.617,
+   "EV_net_pips": -1.617,
+   "sd_pips": 12.96,
+   "t_stat": -0.59,
+   "trades_per_month": 4.3,
+   "win_rate_ref": 0.49,
+   "avg_MFE_pips": 9.09,
+   "avg_MAE_pips": -9.74,
+   "EV_by_year": {
+    "2022": 0.05,
+    "2023": -1.515,
+    "2024": -0.38
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "B02_london_fix_fade",
+   "symbol": "USDJPY",
+   "N": 2432,
+   "EV_gross_pips": -0.257,
+   "EV_net_pips": -1.257,
+   "sd_pips": 21.78,
+   "t_stat": -0.58,
+   "trades_per_month": 67.5,
+   "win_rate_ref": 0.5,
+   "avg_MFE_pips": 14.98,
+   "avg_MAE_pips": -16.04,
+   "EV_by_year": {
+    "2022": -1.014,
+    "2023": -0.08,
+    "2024": 0.27
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "C01_dow_Wed_long",
+   "symbol": "EURUSD",
+   "N": 155,
+   "EV_gross_pips": -0.41,
+   "EV_net_pips": -1.41,
+   "sd_pips": 11.53,
+   "t_stat": -0.44,
+   "trades_per_month": 4.3,
+   "win_rate_ref": 0.548,
+   "avg_MFE_pips": 7.32,
+   "avg_MAE_pips": -7.73,
+   "EV_by_year": {
+    "2022": -0.419,
+    "2023": -0.444,
+    "2024": -0.367
+   },
+   "sign_consistent": true,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "C02_month_end",
+   "symbol": "GBPUSD",
+   "N": 26,
+   "EV_gross_pips": 1.6,
+   "EV_net_pips": 0.6,
+   "sd_pips": 22.1,
+   "t_stat": 0.37,
+   "trades_per_month": 0.7,
+   "win_rate_ref": 0.538,
+   "avg_MFE_pips": 19.27,
+   "avg_MAE_pips": -21.75,
+   "EV_by_year": {
+    "2022": -0.911,
+    "2023": -1.056,
+    "2024": 7.412
+   },
+   "sign_consistent": false,
+   "verdict": "N_TOO_SMALL"
+  },
+  {
+   "label": "C01_dow_Mon_long",
+   "symbol": "USDJPY",
+   "N": 154,
+   "EV_gross_pips": -0.749,
+   "EV_net_pips": -1.749,
+   "sd_pips": 27.55,
+   "t_stat": -0.34,
+   "trades_per_month": 4.3,
+   "win_rate_ref": 0.455,
+   "avg_MFE_pips": 18.48,
+   "avg_MAE_pips": -20.54,
+   "EV_by_year": {
+    "2022": 0.229,
+    "2023": -1.445,
+    "2024": -1.025
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "C02_month_end",
+   "symbol": "USDJPY",
+   "N": 26,
+   "EV_gross_pips": 1.542,
+   "EV_net_pips": 0.542,
+   "sd_pips": 32.72,
+   "t_stat": 0.24,
+   "trades_per_month": 0.7,
+   "win_rate_ref": 0.423,
+   "avg_MFE_pips": 23.63,
+   "avg_MAE_pips": -25.76,
+   "EV_by_year": {
+    "2022": 6.056,
+    "2023": -2.267,
+    "2024": 0.75
+   },
+   "sign_consistent": false,
+   "verdict": "N_TOO_SMALL"
+  },
+  {
+   "label": "C01_dow_Thu_long",
+   "symbol": "GBPUSD",
+   "N": 156,
+   "EV_gross_pips": -0.208,
+   "EV_net_pips": -1.208,
+   "sd_pips": 12.04,
+   "t_stat": -0.22,
+   "trades_per_month": 4.3,
+   "win_rate_ref": 0.506,
+   "avg_MFE_pips": 9.63,
+   "avg_MAE_pips": -9.88,
+   "EV_by_year": {
+    "2022": -3.162,
+    "2023": 1.056,
+    "2024": 1.483
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "C01_dow_Fri_long",
+   "symbol": "USDJPY",
+   "N": 156,
+   "EV_gross_pips": 0.378,
+   "EV_net_pips": -0.622,
+   "sd_pips": 23.43,
+   "t_stat": 0.2,
+   "trades_per_month": 4.3,
+   "win_rate_ref": 0.494,
+   "avg_MFE_pips": 19.47,
+   "avg_MAE_pips": -18.9,
+   "EV_by_year": {
+    "2022": 1.51,
+    "2023": 1.917,
+    "2024": -2.294
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "C01_dow_Tue_long",
+   "symbol": "USDJPY",
+   "N": 157,
+   "EV_gross_pips": -0.606,
+   "EV_net_pips": -1.606,
+   "sd_pips": 43.23,
+   "t_stat": -0.18,
+   "trades_per_month": 4.4,
+   "win_rate_ref": 0.567,
+   "avg_MFE_pips": 19.87,
+   "avg_MAE_pips": -20.25,
+   "EV_by_year": {
+    "2022": -4.665,
+    "2023": 2.175,
+    "2024": 0.647
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "D01_london_breakout",
+   "symbol": "GBPUSD",
+   "N": 555,
+   "EV_gross_pips": 0.149,
+   "EV_net_pips": -0.851,
+   "sd_pips": 23.12,
+   "t_stat": 0.15,
+   "trades_per_month": 15.4,
+   "win_rate_ref": 0.515,
+   "avg_MFE_pips": 16.94,
+   "avg_MAE_pips": -16.94,
+   "EV_by_year": {
+    "2022": 0.421,
+    "2023": 0.131,
+    "2024": -0.074
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "C01_dow_Thu_long",
+   "symbol": "USDJPY",
+   "N": 156,
+   "EV_gross_pips": 0.076,
+   "EV_net_pips": -0.924,
+   "sd_pips": 27.48,
+   "t_stat": 0.03,
+   "trades_per_month": 4.3,
+   "win_rate_ref": 0.513,
+   "avg_MFE_pips": 19.39,
+   "avg_MAE_pips": -20.63,
+   "EV_by_year": {
+    "2022": 2.05,
+    "2023": -4.881,
+    "2024": 3.06
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "C01_dow_Mon_long",
+   "symbol": "EURUSD",
+   "N": 154,
+   "EV_gross_pips": 0.001,
+   "EV_net_pips": -0.999,
+   "sd_pips": 11.38,
+   "t_stat": 0.0,
+   "trades_per_month": 4.3,
+   "win_rate_ref": 0.519,
+   "avg_MFE_pips": 8.19,
+   "avg_MAE_pips": -8.77,
+   "EV_by_year": {
+    "2022": -2.8,
+    "2023": 1.031,
+    "2024": 1.738
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  },
+  {
+   "label": "C01_dow_Thu_long",
+   "symbol": "EURUSD",
+   "N": 156,
+   "EV_gross_pips": -0.0,
+   "EV_net_pips": -1.0,
+   "sd_pips": 9.75,
+   "t_stat": -0.0,
+   "trades_per_month": 4.3,
+   "win_rate_ref": 0.519,
+   "avg_MFE_pips": 7.9,
+   "avg_MAE_pips": -7.52,
+   "EV_by_year": {
+    "2022": -2.056,
+    "2023": 1.517,
+    "2024": 0.538
+   },
+   "sign_consistent": false,
+   "verdict": "NOISE"
+  }
+ ]
+}
